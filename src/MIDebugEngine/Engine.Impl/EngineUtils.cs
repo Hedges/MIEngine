@@ -163,12 +163,14 @@ namespace Microsoft.MIDebugEngine
                 new Entry( "pc", false, "CPU"),
                 new Entry( "cpsr", false, "CPU"),
                 new Entry( "r[0-9]+", true, "CPU"),
-                new Entry( "fpscr", false, "FPU"),
+				new Entry( "x[0-9]+", true, "CPU"),
+				new Entry( "fpscr", false, "FPU"),
                 new Entry( "f[0-9]+", true, "FPU"),
                 new Entry( "s[0-9]+", true, "IEEE Single"),
                 new Entry( "d[0-9]+", true, "IEEE Double"),
                 new Entry( "q[0-9]+", true, "Vector"),
-            };
+				new Entry( "v[0-9]+", true, "Vector"),
+			};
 
             private static readonly Entry[] s_X86Registers = new Entry[]
             {
@@ -245,9 +247,9 @@ namespace Microsoft.MIDebugEngine
             {
                 // TODO: more robust mechanism for determining processor architecture
                 RegisterNameMap map = new RegisterNameMap();
-                if (registerNames.Contains("lr"))
-                {
-                    map._map = s_arm32Registers;
+				if (registerNames[0][0] == 'r' || registerNames[0][0] == 'x') // registers are prefixed with 'r' or 'x', assume ARM and initialize its register sets
+				{
+					map._map = s_arm32Registers;
                 }
                 else if (registerNames.Contains("eax")) // x86 register set
                 {
