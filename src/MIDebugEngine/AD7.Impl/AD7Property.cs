@@ -281,7 +281,7 @@ namespace Microsoft.MIDebugEngine
                 return;
 
             uint fetched = 0;
-            _bytes = new byte[0];
+            _bytes = new byte[16];
 
             IDebugMemoryContext2 memAddr;
             if (GetMemoryContext(out memAddr) != Constants.S_OK)
@@ -294,11 +294,10 @@ namespace Microsoft.MIDebugEngine
                     return;
                 }
                 AD7Property p = new AD7Property(_engine, v);
-                uint pLen;
-                if (p.GetStringCharLength(out pLen) == Constants.S_OK)
+                uint pLen = (uint)v.Value.Length;
+                if(pLen != 0)
                 {
-                    _bytes = new byte[pLen];
-                    p.GetStringRawBytes(pLen, _bytes, out fetched);
+                    _bytes = Encoding.ASCII.GetBytes(v.Value);
                 }
                 return;
             }
