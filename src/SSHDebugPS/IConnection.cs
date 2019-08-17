@@ -7,7 +7,8 @@ using Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier;
 
 namespace Microsoft.SSHDebugPS
 {
-    internal interface IConnection
+    // Needs to be public to support the ContainerPicker UI
+    public interface IConnection
     {
         string Name { get; }
 
@@ -15,7 +16,7 @@ namespace Microsoft.SSHDebugPS
 
         void BeginExecuteAsyncCommand(string commandText, bool runInShell, IDebugUnixShellCommandCallback callback, out IDebugUnixShellAsyncCommand asyncCommand);
 
-        int ExecuteCommand(string commandText, int timeout, out string commandOutput);
+        int ExecuteCommand(string commandText, int timeout, out string commandOutput, out string errorMessage);
 
         List<Process> ListProcesses();
     }
@@ -45,7 +46,7 @@ namespace Microsoft.SSHDebugPS
 
         public abstract void Close();
 
-        public abstract int ExecuteCommand(string commandText, int timeout, out string commandOutput);
+        public abstract int ExecuteCommand(string commandText, int timeout, out string commandOutput, out string errorMessage);
         #endregion
     }
 

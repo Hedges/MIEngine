@@ -15,16 +15,18 @@ namespace Microsoft.SSHDebugPS
         private bool _closeShellOnComplete;
 
         protected IDebugUnixShellCommandCallback Callback { get; }
-        protected ICommandRunner Shell { get; private set; }
+        protected ICommandRunner CommandRunner { get; private set; }
 
-        public AD7UnixAsyncCommand(ICommandRunner shell, IDebugUnixShellCommandCallback callback, bool closeShellOnComplete)
+        public AD7UnixAsyncCommand(ICommandRunner commandRunner, IDebugUnixShellCommandCallback callback, bool closeShellOnComplete)
         {
-            Shell = shell;
+            CommandRunner = commandRunner;
             Callback = callback;
             _closeShellOnComplete = closeShellOnComplete;
-            Shell.OutputReceived += OnOutputReceived;
-            Shell.Closed += OnClosed;
-            Shell.ErrorOccured += OnError;
+            CommandRunner.OutputReceived += OnOutputReceived;
+            CommandRunner.Closed += OnClosed;
+            CommandRunner.ErrorOccured += OnError;
+
+            CommandRunner.Start();
         }
 
         void IDebugUnixShellAsyncCommand.Write(string text)
@@ -36,9 +38,9 @@ namespace Microsoft.SSHDebugPS
 
             lock (_lock)
             {
-                if (Shell != null)
+                if (CommandRunner != null)
                 {
-                    Shell.Write(text);
+                    CommandRunner.Write(text);
                 }
             }
         }
@@ -52,9 +54,9 @@ namespace Microsoft.SSHDebugPS
 
             lock (_lock)
             {
-                if (Shell != null)
+                if (CommandRunner != null)
                 {
-                    Shell.WriteLine(text);
+                    CommandRunner.WriteLine(text);
                 }
             }
         }
@@ -77,9 +79,9 @@ namespace Microsoft.SSHDebugPS
             Callback.OnOutputLine(e);
         }
 
-        protected void OnError(object sender, EventArgs e)
+        protected void OnError(object sender, ErrorOccuredEventArgs e)
         {
-            Callback.OnExit(null);
+            Callback.OnOutputLine(e.ErrorMessage);
             Close();
         }
 
@@ -98,14 +100,14 @@ namespace Microsoft.SSHDebugPS
             {
                 lock (_lock)
                 {
-                    Shell.OutputReceived -= OnOutputReceived;
-                    Shell.ErrorOccured -= OnError;
-                    Shell.Closed -= OnClosed;
+                    CommandRunner.OutputReceived -= OnOutputReceived;
+                    CommandRunner.ErrorOccured -= OnError;
+                    CommandRunner.Closed -= OnClosed;
 
                     try
                     {
                         if (_closeShellOnComplete)
-                            Shell?.Dispose();
+                            CommandRunner?.Dispose();
                     }
                     catch (ThreadInterruptedException)
                     {
@@ -115,7 +117,7 @@ namespace Microsoft.SSHDebugPS
                         // same thread we are on leading to ThreadInterruptedException
                     }
 
-                    Shell = null;
+                    CommandRunner = null;
                 }
             }
         }

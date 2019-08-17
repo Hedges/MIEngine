@@ -3,9 +3,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier;
+using Microsoft.SSHDebugPS.Utilities;
 
 namespace Microsoft.SSHDebugPS
 {
@@ -20,18 +22,26 @@ namespace Microsoft.SSHDebugPS
         private string _startCommand;
         private LineBuffer _lineBuffer = new LineBuffer();
 
-        public AD7UnixAsyncShellCommand(ICommandRunner shell, IDebugUnixShellCommandCallback callback, bool closeShellOnComplete)
-            : base(shell, callback, closeShellOnComplete)
+        public AD7UnixAsyncShellCommand(ICommandRunner commandRunner, IDebugUnixShellCommandCallback callback, bool closeShellOnComplete)
+            : base(commandRunner, callback, closeShellOnComplete)
         {
             Guid id = Guid.NewGuid();
-            _beginMessage = string.Format(CultureInfo.InvariantCulture, "Begin:{0}", id);
-            _exitMessagePrefix = string.Format(CultureInfo.InvariantCulture, "Exit:{0}-", id);
+            _beginMessage = "Begin:{0}".FormatInvariantWithArgs(id);
+            _exitMessagePrefix = "Exit:{0}-".FormatInvariantWithArgs(id);
         }
 
         internal void Start(string commandText)
         {
-            _startCommand = string.Format(CultureInfo.InvariantCulture, "echo \"{0}\"; {1}; echo \"{2}$?\"", _beginMessage, commandText, _exitMessagePrefix);
-            Shell.WriteLine(_startCommand);
+            // CommandRunner is null if the base command has exited or had an error
+            if (CommandRunner != null)
+            {
+                _startCommand = "echo \"{0}\"; {1}; echo \"{2}$?\"".FormatInvariantWithArgs(_beginMessage, commandText, _exitMessagePrefix);
+                CommandRunner.WriteLine(_startCommand);
+            }
+            else
+            {
+                Debug.Fail("CommandRunner is null");
+            }
         }
 
         protected override void OnOutputReceived(object sender, string e)

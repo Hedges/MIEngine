@@ -3,153 +3,294 @@
 
 using System;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using liblinux;
-using liblinux.Shell;
 using Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier;
 
 namespace Microsoft.SSHDebugPS
 {
+    internal class ErrorOccuredEventArgs : EventArgs
+    {
+        private string _errorMessage = null;
+        public ErrorOccuredEventArgs(Exception e)
+        {
+            Exception = e;
+        }
+
+        public ErrorOccuredEventArgs(string message)
+        {
+            _errorMessage = message;
+        }
+
+        public string ErrorMessage { get => !string.IsNullOrWhiteSpace(_errorMessage) ? _errorMessage : Exception.Message; }
+
+        public Exception Exception { get; }
+    }
+
     internal interface ICommandRunner : IDisposable
     {
         event EventHandler<string> OutputReceived;
         event EventHandler<int> Closed;
         event EventHandler<ErrorOccuredEventArgs> ErrorOccured;
 
+        void Start();
+
         void Write(string text);
         void WriteLine(string text);
     }
 
-    internal class ErrorOccuredEventArgs : EventArgs
-    {
-        public ErrorOccuredEventArgs(Exception e)
-        {
-            Exception = e;
-        }
-
-        public Exception Exception { get; }
-    }
-
     /// <summary>
-    /// Launches a local command that sends output when a newline is received.
+    /// Run a single command on Windows. This reads output as ReadLine. Run needs to be called to run the command.
     /// </summary>
-    internal class LocalBufferedCommandRunner : ICommandRunner
+    internal class LocalCommandRunner : ICommandRunner
     {
-        private System.Diagnostics.Process _localProcess;
-        private StreamWriter _stdoutWriter;
+        public static int BUFMAX = 4096;
 
-        public LocalBufferedCommandRunner(string command, string arguments)
-        {
-            ProcessStartInfo processStartInfo = new ProcessStartInfo(command, arguments);
-            processStartInfo.RedirectStandardError = true;
-            processStartInfo.RedirectStandardInput = true;
-            processStartInfo.RedirectStandardOutput = true;
-            processStartInfo.UseShellExecute = false;
-            processStartInfo.CreateNoWindow = true;
+        private ProcessStartInfo _processStartInfo;
+        private System.Diagnostics.Process _process;
+        private CancellationTokenSource _cancellationSource = new CancellationTokenSource();
+        private System.Threading.Tasks.Task _outputReadLoopTask;
+        private System.Threading.Tasks.Task _errorReadLoopTask;
+        private bool _hasExited = false;
 
-            _localProcess = System.Diagnostics.Process.Start(processStartInfo);
-            _stdoutWriter = new StreamWriter(_localProcess.StandardInput.BaseStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 4096, leaveOpen: true);
-            _localProcess.OutputDataReceived += OnProcessOutput;
-            _localProcess.ErrorDataReceived += OnErrorOutput;
-            _localProcess.Exited += OnProcessExited;
+        private StreamWriter _stdInWriter;
+        private StreamReader _stdOutReader;
+        private StreamReader _stdErrReader;
 
-            _localProcess.BeginOutputReadLine();
-            _localProcess.BeginErrorReadLine();
-            _localProcess.EnableRaisingEvents = true;
-        }
+        protected object _lock = new object();
 
         public event EventHandler<string> OutputReceived;
         public event EventHandler<int> Closed;
         public event EventHandler<ErrorOccuredEventArgs> ErrorOccured;
 
-        public void Dispose()
+        public LocalCommandRunner(IPipeTransportSettings settings)
+            : this(settings.Command, settings.CommandArgs)
+        { }
+
+        public LocalCommandRunner(string command, string commandArgs)
         {
-            if (_localProcess != null)
+            _processStartInfo = new ProcessStartInfo(command, commandArgs);
+
+            _processStartInfo.RedirectStandardError = true;
+            _processStartInfo.RedirectStandardInput = true;
+            _processStartInfo.RedirectStandardOutput = true;
+
+            _processStartInfo.UseShellExecute = false;
+            _processStartInfo.CreateNoWindow = true;
+        }
+
+        public void Start()
+        {
+            ThrowIfDisposed();
+            if (_processStartInfo == null)
             {
-                _localProcess.Close();
+                throw new InvalidOperationException("Unable to create process. Process start info does not exist");
             }
 
-            if (_stdoutWriter != null)
+            lock (_lock)
             {
-                _stdoutWriter.Close();
-                _stdoutWriter = null;
+                _process = new System.Diagnostics.Process();
+                _process.StartInfo = _processStartInfo;
+
+                _process.Exited += OnProcessExited;
+                _process.EnableRaisingEvents = true;
+
+                _process.Start();
+
+                _stdInWriter = new StreamWriter(_process.StandardInput.BaseStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), BUFMAX);
+                _stdOutReader = new StreamReader(_process.StandardOutput.BaseStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), false, BUFMAX);
+                _stdErrReader = new StreamReader(_process.StandardError.BaseStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), false, BUFMAX);
+
+                _outputReadLoopTask = System.Threading.Tasks.Task.Run(() => ReadLoop(_stdOutReader, _cancellationSource.Token, true, OnOutputReceived));
+                _errorReadLoopTask = System.Threading.Tasks.Task.Run(() => ReadLoop(_stdErrReader, _cancellationSource.Token, false, OnErrorReceived));
             }
         }
 
         public void Write(string text)
         {
-            _stdoutWriter.Write(text);
-            _stdoutWriter.Flush();
+            ThrowIfDisposed();
+            lock (_lock)
+            {
+                EnsureRunning();
+                _stdInWriter.Write(text);
+                _stdInWriter.Flush();
+
+            }
         }
 
         public void WriteLine(string text)
         {
-            _stdoutWriter.WriteLine(text);
-            _stdoutWriter.Flush();
+            ThrowIfDisposed();
+            lock (_lock)
+            {
+                EnsureRunning();
+                _stdInWriter.WriteLine(text);
+                _stdInWriter.Flush();
+            }
         }
 
-        private void OnErrorOutput(object sender, DataReceivedEventArgs e)
+        protected void ReportException(Exception ex)
         {
-            ErrorOccured?.Invoke(sender, new ErrorOccuredEventArgs(new Exception(e.Data)));
+            ErrorOccured?.Invoke(this, new ErrorOccuredEventArgs(ex));
         }
 
-        private void OnProcessOutput(object sender, DataReceivedEventArgs e)
+        protected virtual void OnProcessExited(object sender, EventArgs args)
         {
-            OutputReceived?.Invoke(this, e.Data + '\n');
+            lock (_lock)
+            {
+                // Make sure that all output has been written before exiting.
+                if (!_hasExited && _outputReadLoopTask.IsCompleted)
+                {
+                    _hasExited = true;
+                    Closed?.Invoke(this, _process.ExitCode);
+                }
+            }
         }
 
-        private void OnProcessExited(object sender, EventArgs e)
+        protected virtual void OnErrorReceived(string error)
         {
-            Closed?.Invoke(this, _localProcess.ExitCode);
+            ErrorOccured?.Invoke(this, new ErrorOccuredEventArgs(error));
         }
+
+        protected virtual void OnOutputReceived(string line)
+        {
+            OutputReceived?.Invoke(this, line);
+        }
+
+        protected virtual void ReadLoop(StreamReader reader, CancellationToken token, bool checkForExitedProcess, Action<string> action)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    Task<string> task = reader.ReadLineAsync();
+                    task.Wait(token);
+
+                    if (task.Result == null || token.IsCancellationRequested)
+                    {
+                        if (checkForExitedProcess)
+                        {
+                            VerifyProcessExitedAndNotify();
+                        }
+                        return; // end of stream
+                    }
+
+                    action(task.Result);
+                }
+            }
+            catch (Exception e)
+            {
+                ReportException(e);
+                Dispose();
+            }
+        }
+
+        protected void VerifyProcessExitedAndNotify()
+        {
+            bool shouldClose = false;
+            lock (_lock)
+            {
+                if (!_hasExited && _process.HasExited)
+                {
+                    _hasExited = true;
+                    shouldClose = true;
+                }
+            }
+
+            if (shouldClose)
+            {
+                Closed?.Invoke(this, _process.ExitCode);
+            }
+
+        }
+
+        protected void EnsureRunning()
+        {
+            if (_process == null || _process.HasExited)
+            {
+                throw new InvalidOperationException(StringResources.Error_ShellNotRunning);
+            }
+        }
+
+        protected void CleanUpProcess()
+        {
+            if (_process != null)
+            {
+                lock (_lock)
+                {
+                    if (_process != null)
+                    {
+                        if (!_process.HasExited)
+                        {
+                            _process.Kill();
+                        }
+
+                        // clean up event handlers.
+                        _process.Exited -= OnProcessExited;
+                        _process = null;
+
+                        _cancellationSource.Cancel();
+
+                        _outputReadLoopTask = null;
+                        _errorReadLoopTask = null;
+
+                        _stdInWriter.Close();
+                        _stdInWriter = null;
+
+                        _stdOutReader.Close();
+                        _stdOutReader = null;
+
+                        _stdErrReader.Close();
+                        _stdErrReader = null;
+                    }
+                }
+            }
+        }
+
+        #region IDisposable Support
+        private bool _disposedValue = false; // To detect redundant calls
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposedValue)
+            {
+                if (disposing)
+                {
+                    CleanUpProcess();
+                }
+
+                _disposedValue = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            // Do not change this code. Put cleanup code in Dispose(bool disposing) above.
+            Dispose(true);
+        }
+
+        protected void ThrowIfDisposed()
+        {
+            if (_disposedValue)
+            {
+                throw new ObjectDisposedException("LocalCommandRunner");
+            }
+        }
+        #endregion
     }
 
     /// <summary>
-    /// Launches a local command that sends raw output.
+    /// Launches a local command where the output is read in a buffer.
     /// </summary>
-    internal class LocalRawCommandRunner : ICommandRunner
+    internal class RawLocalCommandRunner : LocalCommandRunner
     {
-        private System.Diagnostics.Process _localProcess;
-        private StreamWriter _stdoutWriter;
-        private StreamReader _processReader;
-        private StreamReader _processError;
-        private CancellationTokenSource _cancellationSource = new CancellationTokenSource();
-        private bool _isClosed = false;
+        public RawLocalCommandRunner(string command, string args) : base(command, args) { }
 
-        public LocalRawCommandRunner(string command, string arguments)
-        {
-            ProcessStartInfo processStartInfo = new ProcessStartInfo(command, arguments);
-            processStartInfo.RedirectStandardError = true;
-            processStartInfo.RedirectStandardInput = true;
-            processStartInfo.RedirectStandardOutput = true;
-            processStartInfo.UseShellExecute = false;
-            processStartInfo.CreateNoWindow = true;
+        public RawLocalCommandRunner(IPipeTransportSettings settings) : base(settings) { }
 
-            _localProcess = System.Diagnostics.Process.Start(processStartInfo);
-            _localProcess.Exited += OnProcessExited;
-            _localProcess.EnableRaisingEvents = true;
-
-            _stdoutWriter = new StreamWriter(_localProcess.StandardInput.BaseStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 4096, leaveOpen: true);
-            _processReader = _localProcess.StandardOutput;
-            _processError = _localProcess.StandardError;
-
-            Thread outputThread = new Thread(() => ReadLoop(_processReader, _cancellationSource.Token, (msg) => { OutputReceived?.Invoke(this, msg); }));
-            Thread errorThread = new Thread(() => ReadLoop(_processError, _cancellationSource.Token, (msg) => { ErrorOccured?.Invoke(this, new ErrorOccuredEventArgs(new Exception(msg))); }));
-
-            outputThread.Start();
-            errorThread.Start();
-        }
-
-        public event EventHandler<string> OutputReceived;
-        public event EventHandler<int> Closed;
-        public event EventHandler<ErrorOccuredEventArgs> ErrorOccured;
-
-        private static int BUFMAX = 4096;
-        private void ReadLoop(StreamReader reader, CancellationToken token, Action<string> action)
+        protected override void ReadLoop(StreamReader reader, CancellationToken token, bool checkForExitedProcess, Action<string> action)
         {
             try
             {
@@ -160,58 +301,24 @@ namespace Microsoft.SSHDebugPS
                     task.Wait(token);
 
                     if (task.Result > 0)
+                    {
                         action(new string(buffer, 0, task.Result));
+                    }
+                    else
+                    {
+                        if (checkForExitedProcess)
+                        {
+                            VerifyProcessExitedAndNotify();
+                        }
+                        return;
+                    }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                ErrorOccured?.Invoke(this, null);
-                Close();
-                // close correctly?
+                ReportException(ex);
+                Dispose();
             }
-        }
-
-        private void Close()
-        {
-            Dispose();
-        }
-
-        public void Dispose()
-        {
-            if (!_isClosed)
-            {
-                _isClosed = true;
-                _cancellationSource.Cancel();
-                if (_localProcess != null)
-                    _localProcess.Exited -= OnProcessExited;
-                _localProcess?.Close();
-
-                _stdoutWriter?.Close();
-                _processReader?.Close();
-                _processError?.Close();
-
-                _localProcess = null;
-                _stdoutWriter = null;
-                _processReader = null;
-                _processError = null;
-            }
-        }
-
-        public void Write(string text)
-        {
-            _stdoutWriter.Write(text);
-            _stdoutWriter.Flush();
-        }
-
-        public void WriteLine(string text)
-        {
-            _stdoutWriter.WriteLine(text);
-            _stdoutWriter.Flush();
-        }
-
-        private void OnProcessExited(object sender, EventArgs e)
-        {
-            Closed?.Invoke(this, _localProcess.ExitCode);
         }
     }
 
@@ -222,11 +329,22 @@ namespace Microsoft.SSHDebugPS
     {
         private IDebugUnixShellAsyncCommand _asyncCommand;
         private bool _isRunning;
+        private string _commandText;
+        private Connection _remoteConnection;
+
+        public RemoteCommandRunner(IPipeTransportSettings settings, Connection remoteConnection)
+            : this(settings.Command, settings.CommandArgs, remoteConnection)
+        { }
 
         public RemoteCommandRunner(string command, string arguments, Connection remoteConnection)
         {
-            string commandText = string.Concat(command, " ", arguments);
-            remoteConnection.BeginExecuteAsyncCommand(commandText, runInShell: false, callback: this, asyncCommand: out _asyncCommand);
+            _remoteConnection = remoteConnection;
+            _commandText = string.Concat(command, " ", arguments);
+        }
+
+        public void Start()
+        {
+            _remoteConnection.BeginExecuteAsyncCommand(_commandText, runInShell: false, callback: this, asyncCommand: out _asyncCommand);
             _isRunning = true;
         }
 
@@ -266,7 +384,7 @@ namespace Microsoft.SSHDebugPS
             int code;
             if (!Int32.TryParse(exitCode, out code))
             {
-                ErrorOccured?.Invoke(this, new ErrorOccuredEventArgs(new Exception(StringResources.Error_ExitCodeNotParseable)));
+                ErrorOccured?.Invoke(this, new ErrorOccuredEventArgs(StringResources.Error_ExitCodeNotParseable));
                 code = -1;
             }
             Closed?.Invoke(this, code);

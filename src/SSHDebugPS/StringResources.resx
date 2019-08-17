@@ -139,7 +139,23 @@
 {1} = Command to run in the container</comment>
   </data>
   <data name="Docker_PSDescription" xml:space="preserve">
-    <value>Docker Transport allows connecting Visual Studio to Docker containers locally or through SSH.</value>
+    <value>The Docker (Linux Container) connection type allows Visual Studio to connect to Docker containers running locally or remotely (using SSH).</value>
+  </data>
+  <data name="Error_CommandFailed" xml:space="preserve">
+    <value>Command failed to execute</value>
+  </data>
+  <data name="Error_ContainerConnectionStringInvalidMessage" xml:space="preserve">
+    <value>The connection string provided is not formatted properly.</value>
+  </data>
+  <data name="Error_ContainerConnectionStringInvalidTitle" xml:space="preserve">
+    <value>Connection string format invalid.</value>
+  </data>
+  <data name="Error_ContainerUnavailableMessage" xml:space="preserve">
+    <value>Container '{0}' is not in the list of running containers.</value>
+    <comment>{0} = name of the virtualized container</comment>
+  </data>
+  <data name="Error_ContainerUnavailableTitle" xml:space="preserve">
+    <value>Container unavailable.</value>
   </data>
   <data name="Error_CopyFileFailed" xml:space="preserve">
     <value>Failed to copy files.</value>
@@ -155,8 +171,30 @@
     <value>The specified directory {0} could not be created or accessed.</value>
     <comment>{0} directory name.</comment>
   </data>
+  <data name="Error_OperationTimedOut" xml:space="preserve">
+    <value>Operation timed out.</value>
+  </data>
+  <data name="Error_ProcessListFailedTitle" xml:space="preserve">
+    <value>Failed to list processes.</value>
+  </data>
+  <data name="Error_ProcFSError" xml:space="preserve">
+    <value>Parsing '/proc' for process list failed. 
+Error:
+'{0}'</value>
+    <comment>{0} = Output from command</comment>
+  </data>
+  <data name="Error_PSErrorFormat" xml:space="preserve">
+    <value>'ps' command failed with exit code '{0}'. 
+Error:
+'{1}'</value>
+    <comment>{0} = exit code
+{1} = additional output</comment>
+  </data>
   <data name="Error_PSFailed" xml:space="preserve">
-    <value>Unable to obtain process listing. 'ps' command failed.</value>
+    <value>Unable to obtain process list.</value>
+  </data>
+  <data name="Error_PSMissing" xml:space="preserve">
+    <value>'ps' command missing.</value>
   </data>
   <data name="Error_ShellNotRunning" xml:space="preserve">
     <value>Cannot process command. Connection is not open.</value>
@@ -168,6 +206,13 @@
   <data name="HeaderTextFormat" xml:space="preserve">
     <value>Enter credentials to connect to {0}</value>
     <comment>{0} is the network address being connected to</comment>
+  </data>
+  <data name="HostName_PlaceHolder" xml:space="preserve">
+    <value>&lt;hostname&gt;</value>
+  </data>
+  <data name="ProcessName_Unknown" xml:space="preserve">
+    <value>&lt;unknown&gt;</value>
+    <comment>Placeholder for unable to determine process name</comment>
   </data>
   <data name="SSH_PSDescription" xml:space="preserve">
     <value>SSH (Secure Shell) Transport allows connecting Visual Studio to computers running an SSH server with a bash-like shell (ex: Linux, macOS, etc).</value>
