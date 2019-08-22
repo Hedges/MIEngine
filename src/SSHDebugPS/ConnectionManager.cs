@@ -1,31 +1,72 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using Microsoft.SSHDebugPS.VS;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
 using System;
-using System.Globalization;
+using System.Diagnostics;
 using System.Linq;
+using System.Windows.Interop;
+using EnvDTE;
 using liblinux;
 using liblinux.Persistence;
-using Microsoft.DebugEngineHost;
-using Task = System.Threading.Tasks.Task;
+using Microsoft.SSHDebugPS.Docker;
+using Microsoft.SSHDebugPS.SSH;
+using Microsoft.SSHDebugPS.UI;
+using Microsoft.SSHDebugPS.Utilities;
 using Microsoft.VisualStudio.Linux.ConnectionManager;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Microsoft.SSHDebugPS
 {
     internal class ConnectionManager
     {
-        internal static Connection GetInstance(string name, ConnectionReason reason)
+        public static DockerConnection GetDockerConnection(string name)
         {
-            UnixSystem remoteSystem = null;
+           if (string.IsNullOrWhiteSpace(name))
+                return null;
+
+            DockerContainerTransportSettings settings;
+            Connection remoteConnection;
+
+            if (!DockerConnection.TryConvertConnectionStringToSettings(name, out settings, out remoteConnection) || settings == null)
+            {
+                string connectionString;
+
+                bool success = ShowContainerPickerWindow(IntPtr.Zero, out connectionString);
+                if (success)
+                {
+                    success = DockerConnection.TryConvertConnectionStringToSettings(connectionString, out settings, out remoteConnection);
+                }
+
+                if (!success || settings == null)
+                {
+                    VSMessageBoxHelper.PostErrorMessage(StringResources.Error_ContainerConnectionStringInvalidTitle, StringResources.Error_ContainerConnectionStringInvalidMessage);
+                    return null;
+                }
+            }
+
+            string displayName = DockerConnection.CreateConnectionString(settings.ContainerName, remoteConnection?.Name, settings.HostName);
+            if (DockerHelper.IsContainerRunning(settings.HostName, settings.ContainerName, remoteConnection))
+            {
+                return new DockerConnection(settings, remoteConnection, displayName);
+            }
+            else
+            {
+                VSMessageBoxHelper.PostErrorMessage(
+                   StringResources.Error_ContainerUnavailableTitle,
+                   StringResources.Error_ContainerUnavailableMessage.FormatCurrentCultureWithArgs(settings.ContainerName));
+                return null;
+            }
+        }
+
+        public static SSHConnection GetSSHConnection(string name)
+        {
             ConnectionInfoStore store = new ConnectionInfoStore();
             ConnectionInfo connectionInfo = null;
 
             StoredConnectionInfo storedConnectionInfo = store.Connections.FirstOrDefault(connection =>
                 {
-                    return name.Equals(GetFormattedConnectionName((ConnectionInfo)connection), StringComparison.OrdinalIgnoreCase);
+                    return name.Equals(SSHPortSupplier.GetFormattedSSHConnectionName((ConnectionInfo)connection), StringComparison.OrdinalIgnoreCase);
                 });
 
             if (storedConnectionInfo != null)
@@ -34,25 +75,31 @@ namespace Microsoft.SSHDebugPS
             if (connectionInfo == null)
             {
                 IVsConnectionManager connectionManager = (IVsConnectionManager)ServiceProvider.GlobalProvider.GetService(typeof(IVsConnectionManager));
-
-                string userName;
-                string hostName;
-
-                int atSignIndex = name.IndexOf('@');
-                if (atSignIndex > 0)
+                IConnectionManagerResult result;
+                if (string.IsNullOrWhiteSpace(name))
                 {
-                    userName = name.Substring(0, atSignIndex);
-                    hostName = name.Substring(atSignIndex + 1);
+                    result = connectionManager.ShowDialog();
                 }
                 else
                 {
-                    userName = string.Format(CultureInfo.CurrentCulture, StringResources.UserName_PlaceHolder);
-                    hostName = name;
+                    string userName;
+                    string hostName;
+
+                    int atSignIndex = name.IndexOf('@');
+                    if (atSignIndex > 0)
+                    {
+                        userName = name.Substring(0, atSignIndex);
+
+                        int hostNameStartPos = atSignIndex + 1;
+                        hostName = hostNameStartPos < name.Length ? name.Substring(hostNameStartPos) : StringResources.HostName_PlaceHolder;
+                    }
+                    else
+                    {
+                        userName = StringResources.UserName_PlaceHolder;
+                        hostName = name;
+                    }
+                    result = connectionManager.ShowDialog(new PasswordConnectionInfo(hostName, userName, new System.Security.SecureString()));
                 }
-
-                PasswordConnectionInfo newConnectionInfo = new PasswordConnectionInfo(hostName, userName, new System.Security.SecureString());
-
-                IConnectionManagerResult result = connectionManager.ShowDialog(newConnectionInfo);
 
                 if ((result.DialogResult & ConnectionManagerDialogResult.Succeeded) == ConnectionManagerDialogResult.Succeeded)
                 {
@@ -62,55 +109,49 @@ namespace Microsoft.SSHDebugPS
                 }
             }
 
-            if (connectionInfo != null)
+            return SSHHelper.CreateSSHConnectionFromConnectionInfo(connectionInfo);
+        }
+
+        /// <summary>
+        /// Open the ContainerPickerDialog
+        /// </summary>
+        /// <param name="hwnd">Parent hwnd or IntPtr.Zero</param>
+        /// <param name="connectionString">[out] connection string obtained by the dialog</param>
+        /// <returns></returns>
+        public static bool ShowContainerPickerWindow(IntPtr hwnd, out string connectionString)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread("Microsoft.SSHDebugPS.ShowContainerPickerWindow");
+            ContainerPickerDialogWindow dialog = new ContainerPickerDialogWindow();
+
+            if (hwnd == IntPtr.Zero) // get the VS main window hwnd
             {
-                remoteSystem = new UnixSystem();
-
-                while (true)
+                try
                 {
-                    try
-                    {
-                        VSOperationWaiter.Wait(string.Format(CultureInfo.CurrentCulture, StringResources.WaitingOp_Connecting, name), throwOnCancel: false, action: () =>
-                        {
-                            remoteSystem.Connect(connectionInfo);
-                        });
-                        break;
-                    }
-                    catch (RemoteAuthenticationException)
-                    {
-                        IVsConnectionManager connectionManager = (IVsConnectionManager)ServiceProvider.GlobalProvider.GetService(typeof(IVsConnectionManager));
-                        IConnectionManagerResult result = connectionManager.ShowDialog(StringResources.AuthenticationFailureHeader, StringResources.AuthenticationFailureDescription, connectionInfo);
-
-                        if ((result.DialogResult & ConnectionManagerDialogResult.Succeeded) == ConnectionManagerDialogResult.Succeeded)
-                        {
-                            connectionInfo = result.ConnectionInfo;
-                        }
-                        else
-                        {
-                            return null;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        VsShellUtilities.ShowMessageBox(ServiceProvider.GlobalProvider, ex.Message, null,
-                            OLEMSGICON.OLEMSGICON_CRITICAL, OLEMSGBUTTON.OLEMSGBUTTON_OK, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
-                        return null;
-                    }
+                    // parent to the global VS window
+                    DTE dte = (DTE)Package.GetGlobalService(typeof(SDTE));
+                    hwnd = new IntPtr(dte?.MainWindow?.HWnd ?? 0);
                 }
-
-                // NOTE: This will be null if connect is canceled
-                if (remoteSystem != null)
+                catch // No DTE?
                 {
-                    return new Connection(remoteSystem);
+                    Debug.Fail("No DTE?");
                 }
             }
 
-            return null;
-        }
+            if (hwnd != IntPtr.Zero)
+            {
+                WindowInteropHelper helper = new WindowInteropHelper(dialog);
+                helper.Owner = hwnd;
+            }
 
-        internal static string GetFormattedConnectionName(ConnectionInfo connectionInfo)
-        {
-            return connectionInfo.UserName + "@" + connectionInfo.HostNameOrAddress;
+            bool? dialogResult = dialog.ShowModal();
+            if (dialogResult.GetValueOrDefault(false))
+            {
+                connectionString = dialog.SelectedContainerConnectionString;
+                return true;
+            }
+
+            connectionString = string.Empty;
+            return false;
         }
     }
 }

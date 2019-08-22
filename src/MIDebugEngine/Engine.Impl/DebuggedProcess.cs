@@ -153,16 +153,7 @@ namespace Microsoft.MIDebugEngine
                     {
                         id = file;
                     }
-                    var module = FindModule(id);
-                    if (module == null)
-                    {
-                        module = new DebuggedModule(id, file, loadAddr, size, symsLoaded, symPath, _loadOrder++);
-                        lock (_moduleList)
-                        {
-                            _moduleList.Add(module);
-                        }
-                        _callback.OnModuleLoad(module);
-                    }
+                    AddModule(id, file, loadAddr, size, symsLoaded, symPath);
                 }
             };
 
@@ -754,7 +745,7 @@ namespace Microsoft.MIDebugEngine
 
                     // check for remote
                     string destination = localLaunchOptions?.MIDebuggerServerAddress;
-                    if (!string.IsNullOrEmpty(destination))
+                    if (!string.IsNullOrWhiteSpace(destination))
                     {
                         commands.Add(new LaunchCommand("-target-select remote " + destination, string.Format(CultureInfo.CurrentCulture, ResourceStrings.ConnectingMessage, destination)));
                     }
@@ -774,7 +765,7 @@ namespace Microsoft.MIDebugEngine
                             }
                         };
 
-                        commands.Add(new LaunchCommand("-target-attach " + _launchOptions.ProcessId.Value, ignoreFailures: false, failureHandler: failureHandler));
+                        commands.Add(new LaunchCommand("-target-attach " + _launchOptions.ProcessId.Value.ToString(CultureInfo.InvariantCulture), ignoreFailures: false, failureHandler: failureHandler));
                     }
 
                     if (this.MICommandFactory.Mode == MIMode.Lldb)
@@ -848,7 +839,7 @@ namespace Microsoft.MIDebugEngine
                     if (null != localLaunchOptions)
                     {
                         string destination = localLaunchOptions.MIDebuggerServerAddress;
-                        if (!string.IsNullOrEmpty(destination))
+                        if (!string.IsNullOrWhiteSpace(destination))
                         {
                             commands.Add(new LaunchCommand("-target-select remote " + destination, string.Format(CultureInfo.CurrentCulture, ResourceStrings.ConnectingMessage, destination)));
                         }
@@ -1095,6 +1086,7 @@ namespace Microsoft.MIDebugEngine
                 }
             }
 
+            await this.EnsureModulesLoaded();
             await ThreadCache.StackFrames(thread);  // prepopulate the break thread in the thread cache
             ThreadContext cxt = await ThreadCache.GetThreadContext(thread);
 
@@ -1142,8 +1134,7 @@ namespace Microsoft.MIDebugEngine
 
                 // MinGW sends a stopped event on attach. gdb<->gdbserver also sends a stopped event when first attached.
                 // If this is a gdb<->gdbserver connection, ignore this as the entryPoint
-                if (this._launchOptions is LocalLaunchOptions &&
-                    !String.IsNullOrWhiteSpace(((LocalLaunchOptions)this._launchOptions).MIDebuggerServerAddress))
+                if (IsLocalLaunchUsingServer())
                 {
                     // If the stopped event occurs on gdbserver, ignore it unless it contains a filename.
                     TupleValue frame = results.Results.TryFind<TupleValue>("frame");
@@ -1561,24 +1552,36 @@ namespace Microsoft.MIDebugEngine
                     }
                     line = line.Trim();
                     line = line.TrimEnd(new char[] { '"', '\n' });
-                    var module = FindModule(line);
-                    if (module == null)
-                    {
-                        module = new DebuggedModule(line, line, startAddr, endAddr - startAddr, symbolsLoaded, line, _loadOrder++);
-                        lock (_moduleList)
-                        {
-                            _moduleList.Add(module);
-                        }
-
-                        _callback.OnModuleLoad(module);
-                    }
-                    else if (!module.SymbolsLoaded && symbolsLoaded)
-                    {
-                        module.SymbolsLoaded = true;
-                        _callback.OnSymbolsLoaded(module);
-                    }
+                    AddModule(line, line, startAddr, endAddr - startAddr, symbolsLoaded, line);
                 }
             }
+        }
+
+        private DebuggedModule AddModule(string id, string name, ulong baseAddr, ulong size, bool symbolsLoaded, string symPath)
+        {
+            var module = FindModule(id);
+            if (module == null)
+            {
+                module = new DebuggedModule(id, name, baseAddr, size, symbolsLoaded, symPath, _loadOrder++);
+                lock (_moduleList)
+                {
+                    // Temporary kludge to work around VS asking user for source when __sanitizer::Die breakpoint is hit.
+                    // Will be removed when asan implementation switches to using the unhandled exception dialog.
+                    if (id.Contains("libasan.so"))
+                    {
+                        module.IgnoreSource = true;
+                    }
+                    _moduleList.Add(module);
+                }
+
+                _callback.OnModuleLoad(module);
+            }
+            else if (!module.SymbolsLoaded && symbolsLoaded)
+            {
+                module.SymbolsLoaded = true;
+                _callback.OnSymbolsLoaded(module);
+            }
+            return module;
         }
 
         // this is called on any thread, so we need to dispatch the command via
@@ -1813,6 +1816,14 @@ namespace Microsoft.MIDebugEngine
             lock (_moduleList)
             {
                 return _moduleList.Find((m) => m.Id == id);
+            }
+        }
+
+        public DebuggedModule FindModule(ulong addr)
+        {
+            lock (_moduleList)
+            {
+                return _moduleList.Find((m) => m.AddressInModule(addr));
             }
         }
 
@@ -2237,6 +2248,8 @@ namespace Microsoft.MIDebugEngine
         {
             return ConsoleCmdAsync(@"shell echo -e \\033c 1>&2");
         }
+
+        public bool IsChildProcessDebugging => _childProcessHandler != null;
 
         public bool MapCurrentSrcToCompileTimeSrc(string currentSrc, out string compilerSrc)
         {

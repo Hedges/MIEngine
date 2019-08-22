@@ -3,66 +3,90 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier;
-using System.IO;
 using System.Globalization;
+using System.IO;
 using liblinux;
 using liblinux.Shell;
+using Microsoft.SSHDebugPS.Utilities;
+using Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier;
 
-namespace Microsoft.SSHDebugPS
+namespace Microsoft.SSHDebugPS.SSH
 {
-    internal class Connection
+    internal class SSHConnection : Connection
     {
         private liblinux.UnixSystem _remoteSystem;
         private liblinux.Services.GdbServer _gdbserver = null;
 
-        public Connection(liblinux.UnixSystem remoteSystem)
+        public SSHConnection(liblinux.UnixSystem remoteSystem)
         {
+            if (remoteSystem == null)
+                throw new ArgumentNullException(nameof(remoteSystem));
+
             _remoteSystem = remoteSystem;
         }
 
-        internal ConnectionInfo ConnectionInfo
+        public override string Name
         {
             get
             {
-                return _remoteSystem.ConnectionInfo;
+                return SSHPortSupplier.GetFormattedSSHConnectionName(_remoteSystem.ConnectionInfo);
             }
         }
 
-        internal List<PSOutputParser.Process> ListProcesses()
+        public string AttachToProcess(int pid, string preAttachCommand)
         {
-            var command = _remoteSystem.Shell.ExecuteCommand(PSOutputParser.CommandText);
+            var gdbStart = new liblinux.Services.GdbServerStartInfo();
+            gdbStart.ProcessId = pid;   // indicates an attach operation
+            gdbStart.PreLaunchCommand = preAttachCommand;
+            _gdbserver = _remoteSystem.Services.GdbServer.Start(gdbStart); // throws on failure
+            return "localhost:" + _gdbserver.StartInfo.LocalPort.ToString(CultureInfo.InvariantCulture);
+        }
+
+        public override List<Process> ListProcesses()
+        {
+            string username = string.Empty;
+            var usernameCommand = _remoteSystem.Shell.ExecuteCommand("id -u -n");
+            if (usernameCommand.ExitCode == 0)
+            {
+                username = usernameCommand.Output.TrimEnd('\n', '\r'); // trim line endings because 'id' command ends with a newline
+            }
+
+            var command = _remoteSystem.Shell.ExecuteCommand(PSOutputParser.PSCommandLine);
             if (command.ExitCode != 0)
             {
                 throw new CommandFailedException(StringResources.Error_PSFailed);
             }
 
-            return PSOutputParser.Parse(command.Output);
+            return PSOutputParser.Parse(command.Output, username);
         }
 
-        internal void BeginExecuteAsyncCommand(string commandText, bool runInShell, IDebugUnixShellCommandCallback callback, out IDebugUnixShellAsyncCommand asyncCommand)
+        public override void BeginExecuteAsyncCommand(string commandText, bool runInShell, IDebugUnixShellCommandCallback callback, out IDebugUnixShellAsyncCommand asyncCommand)
         {
             if (runInShell)
             {
-                var command = new AD7UnixAsyncShellCommand(new StreamingShell(_remoteSystem), callback);
+                var command = new AD7UnixAsyncShellCommand(new SSHRemoteShell(_remoteSystem), callback, true);
                 command.Start(commandText);
                 asyncCommand = command;
             }
             else
             {
-                var command = new AD7UnixAsyncCommand(_remoteSystem, callback);
+                var command = new SSHUnixAsyncCommand(_remoteSystem, callback);
                 command.Start(commandText);
                 asyncCommand = command;
             }
         }
 
-        internal int ExecuteCommand(string commandText, int timeout, out string commandOutput)
+        public override void ExecuteSyncCommand(string commandDescription, string commandText, out string commandOutput, int timeout, out int exitCode)
         {
-            var command = _remoteSystem.Shell.ExecuteCommand(commandText, timeout);
+            string errorMessage;
+            exitCode = ExecuteCommand(commandText, timeout, out commandOutput, out errorMessage);
+        }
+
+        public override int ExecuteCommand(string commandText, int timeout, out string commandOutput, out string errorMessage)
+        {
+            INonHostedCommand command = _remoteSystem.Shell.ExecuteCommand(commandText, timeout);
             commandOutput = command.Output;
+            errorMessage = command.ErrorOutput;
             return command.ExitCode;
         }
 
@@ -71,7 +95,7 @@ namespace Microsoft.SSHDebugPS
         /// </summary>
         /// <param name="sourcePath">File on the local machine.</param>
         /// <param name="destinationPath">Destination path on the remote machine.</param>
-        internal void CopyFile(string sourcePath, string destinationPath)
+        public override void CopyFile(string sourcePath, string destinationPath)
         {
             if (string.IsNullOrEmpty(sourcePath))
             {
@@ -80,7 +104,7 @@ namespace Microsoft.SSHDebugPS
 
             if (!File.Exists(sourcePath))
             {
-                throw new FileNotFoundException(string.Format(CultureInfo.CurrentCulture, StringResources.Error_SourceFileNotFound, sourcePath));
+                throw new FileNotFoundException(StringResources.Error_SourceFileNotFound.FormatCurrentCultureWithArgs(sourcePath));
             }
 
             _remoteSystem.FileSystem.UploadFile(sourcePath, destinationPath);
@@ -91,7 +115,7 @@ namespace Microsoft.SSHDebugPS
         /// </summary>
         /// <param name="path">Path on the remote machine.</param>
         /// <returns>Full path of the created directory.</returns>
-        internal string MakeDirectory(string path)
+        public override string MakeDirectory(string path)
         {
             bool directoryExists = false;
             liblinux.IO.IRemoteFileSystemInfo stat = null;
@@ -106,7 +130,6 @@ namespace Microsoft.SSHDebugPS
                 // Unfortunately the exceptions that are thrown by liblinux are not public, so we can't specialize it.
             }
 
-
             if (stat == null && !directoryExists)
             {
                 return _remoteSystem.FileSystem.CreateDirectory(path).FullPath;
@@ -118,30 +141,21 @@ namespace Microsoft.SSHDebugPS
             else
             {
                 // This may happen if the user does not have permissions or if it is a file, etc.
-                throw new ArgumentException(string.Format(CultureInfo.CurrentCulture, StringResources.Error_InvalidDirectory, path), nameof(path));
+                throw new ArgumentException(StringResources.Error_InvalidDirectory.FormatCurrentCultureWithArgs(path), nameof(path));
             }
         }
 
-        internal string GetUserHomeDirectory()
+        public override string GetUserHomeDirectory()
         {
             return _remoteSystem.FileSystem.GetDirectory(liblinux.IO.SpecialDirectory.Home).FullPath;
         }
 
-        public string AttachToProcess(int pid, string preAttachCommand)
-        {
-            var gdbStart = new liblinux.Services.GdbServerStartInfo();
-            gdbStart.ProcessId = pid;   // indicates an attach operation
-            gdbStart.PreLaunchCommand = preAttachCommand;
-            _gdbserver = _remoteSystem.Services.GdbServer.Start(gdbStart); // throws on failure
-            return "localhost:" + _gdbserver.StartInfo.LocalPort.ToString(CultureInfo.InvariantCulture);
-        }
-
-        internal bool IsOSX()
+        public override bool IsOSX()
         {
             return _remoteSystem.Properties.Id == SystemId.OSX;
         }
 
-        internal bool IsLinux()
+        public override bool IsLinux()
         {
             var command = _remoteSystem.Shell.ExecuteCommand("uname");
             if (command.ExitCode != 0)
@@ -152,13 +166,14 @@ namespace Microsoft.SSHDebugPS
             return command.Output.Trim().Equals("Linux");
         }
 
-        internal void Clean()
+        public override void Close()
         {
             if (_gdbserver != null)
             {
                 _gdbserver.Stop();
                 _gdbserver = null;
             }
+
             if (_remoteSystem != null)
             {
                 _remoteSystem.Dispose();

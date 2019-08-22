@@ -313,7 +313,19 @@ namespace Microsoft.MIDebugEngine
         private ThreadContext CreateContext(TupleValue frame)
         {
             ulong? pc = frame.TryFindAddr("addr");
-            MITextPosition textPosition = MITextPosition.TryParse(this._debugger, frame);
+
+            // don't report source line info for modules marked as IgnoreSource
+            bool ignoreSource = false;
+            if (pc != null)
+            {
+                var module = _debugger.FindModule(pc.Value);
+                if (module != null && module.IgnoreSource)
+                {
+                    ignoreSource = true;
+                }
+            }
+            MITextPosition textPosition = !ignoreSource ? MITextPosition.TryParse(this._debugger, frame) : null;
+
             string func = frame.TryFindString("func");
             uint level = frame.FindUint("level");
             string from = frame.TryFindString("from");
@@ -487,7 +499,8 @@ namespace Microsoft.MIDebugEngine
                     }
                     foreach (var newt in newThreads)
                     {
-                        if (!newt.ChildThread)
+                        // If we are child process debugging, check and see if its a child thread
+                        if (!(_debugger.IsChildProcessDebugging && newt.ChildThread))
                         {
                             _callback.OnThreadStart(newt);
                         }
@@ -497,7 +510,8 @@ namespace Microsoft.MIDebugEngine
                 {
                     foreach (var dead in deadThreads)
                     {
-                        if (!dead.ChildThread)
+                        // If we are child process debugging, check and see if its a child thread
+                        if (!(_debugger.IsChildProcessDebugging && dead.ChildThread))
                         {
                             // Send the destroy event outside the lock
                             _callback.OnThreadExit(dead, 0);

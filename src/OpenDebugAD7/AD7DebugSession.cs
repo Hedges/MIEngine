@@ -1315,9 +1315,31 @@ namespace OpenDebugAD7
                                 DEBUG_PROPERTY_INFO[] childProperties = new DEBUG_PROPERTY_INFO[count];
                                 childEnum.Next(count, childProperties, out count);
 
-                                for (uint c = 0; c < count; c++)
+                                if (count > 1)
                                 {
-                                    response.Variables.Add(m_variableManager.CreateVariable(ref childProperties[c], variableEvaluationData.propertyInfoFlags));
+                                    // Ensure that items with duplicate names such as multiple anonymous unions will display in VS Code
+                                    Dictionary<string, Variable> variablesDictionary = new Dictionary<string, Variable>();
+                                    for (uint c = 0; c < count; c++)
+                                    {
+                                        var variable = m_variableManager.CreateVariable(ref childProperties[c], variableEvaluationData.propertyInfoFlags);
+                                        int uniqueCounter = 2;
+                                        string variableName = variable.Name;
+                                        string variableNameFormat = "{0} #{1}";
+                                        while (variablesDictionary.ContainsKey(variableName))
+                                        {
+                                            variableName = String.Format(CultureInfo.InvariantCulture, variableNameFormat, variable.Name, uniqueCounter++);
+                                        }
+
+                                        variable.Name = variableName;
+                                        variablesDictionary[variableName] = variable;
+                                    }
+
+                                    response.Variables.AddRange(variablesDictionary.Values);
+                                }
+                                else
+                                {
+                                    // Shortcut when no duplicate can exist
+                                    response.Variables.Add(m_variableManager.CreateVariable(ref childProperties[0], variableEvaluationData.propertyInfoFlags));
                                 }
                             }
                         }
@@ -1440,9 +1462,13 @@ namespace OpenDebugAD7
             });
         }
 
+        /// <summary>
+        /// Currently unsupported. This message can be received when we return a source file that doesn't exist (such as a library within gdb).
+        /// See github issue: microsoft/vscode-cpptools#3662
+        /// </summary>
         protected override void HandleSourceRequestAsync(IRequestResponder<SourceArguments, SourceResponse> responder)
         {
-            base.HandleSourceRequestAsync(responder);
+            responder.SetError(new ProtocolException("'SourceRequest' not supported."));
         }
 
         protected override void HandleThreadsRequestAsync(IRequestResponder<ThreadsArguments, ThreadsResponse> responder)

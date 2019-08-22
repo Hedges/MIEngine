@@ -224,7 +224,7 @@ namespace OpenDebugAD7
 
         private static string FormatCommand(JsonCommand command)
         {
-            return String.Concat("        <Command IgnoreFailures='", command.IgnoreFailures ? "true" : "false", "' Description='", command.Description, "'>", command.Text, "</Command>\n");
+            return String.Concat("        <Command IgnoreFailures='", command.IgnoreFailures ? "true" : "false", "' Description='", XmlSingleQuotedAttributeEncode(command.Description), "'>", command.Text, "</Command>\n");
         }
 
         private static void AddBaseLaunchOptionsAttributes(
@@ -331,8 +331,12 @@ namespace OpenDebugAD7
                 // If one (or more) are not redirected, then add redirection
                 if (!stdInRedirected || !stdOutRedirected || !stdErrRedirected)
                 {
-                    List<string> argList = new List<string>(arguments.Length + 3);
-                    argList.AddRange(arguments);
+                    int argLength = arguments?.Length ?? 0;
+                    List<string> argList = new List<string>(argLength + 3);
+                    if (arguments != null)
+                    {
+                        argList.AddRange(arguments);
+                    }
 
                     if (!stdErrRedirected)
                     {
