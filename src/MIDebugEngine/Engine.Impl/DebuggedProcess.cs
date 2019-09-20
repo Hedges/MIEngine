@@ -1306,11 +1306,12 @@ namespace Microsoft.MIDebugEngine
             }
             else
             {
-                if (breakRequest == BreakRequest.None)
-                {
-                    Debug.Fail("Unknown stopping reason");
-                    _callback.OnException(thread, "Unknown", "Unknown stopping event", 0);
-                }
+                //if (breakRequest == BreakRequest.None)
+                //{
+                //    Debug.Fail("Unknown stopping reason");
+                //    _callback.OnException(thread, "Unknown", "Unknown stopping event", 0);
+                //}
+                _callback.OnAsyncBreakComplete(thread);
             }
             if (IsExternalBreakRequest(breakRequest))
             {
