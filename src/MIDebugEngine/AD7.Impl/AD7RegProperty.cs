@@ -3,12 +3,100 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using Microsoft.VisualStudio.Debugger.Interop;
 using System.Diagnostics;
 
 namespace Microsoft.MIDebugEngine
 {
+    public class AD7RegProperty : IDebugProperty2
+    {
+        private readonly AD7Engine _engine;
+        private readonly RegisterDescription _reg;
+        private DEBUG_PROPERTY_INFO _info;
+        public AD7RegProperty(AD7Engine engine, RegisterDescription reg, DEBUG_PROPERTY_INFO info)
+        {
+            _engine = engine;
+            _reg = reg;
+            _info = info;
+        }
+
+        public int EnumChildren(enum_DEBUGPROP_INFO_FLAGS dwFields, uint dwRadix, ref Guid guidFilter, enum_DBG_ATTRIB_FLAGS dwAttribFilter, string pszNameFilter, uint dwTimeout, out IEnumDebugPropertyInfo2 ppEnum)
+        {
+            ppEnum = null;
+            return Constants.S_FALSE;
+        }
+
+        public int GetDerivedMostProperty(out IDebugProperty2 ppDerivedMost)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int GetExtendedInfo(ref Guid guidExtendedInfo, out object pExtendedInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int GetMemoryBytes(out IDebugMemoryBytes2 ppMemoryBytes)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int GetMemoryContext(out IDebugMemoryContext2 ppMemory)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int GetParent(out IDebugProperty2 ppParent)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int GetPropertyInfo(enum_DEBUGPROP_INFO_FLAGS dwFields, uint dwRadix, uint dwTimeout, IDebugReference2[] rgpArgs, uint dwArgCount, DEBUG_PROPERTY_INFO[] pPropertyInfo)
+        {
+            pPropertyInfo[0] = _info;
+            rgpArgs = null;
+
+            return Constants.S_OK;
+        }
+
+        public int GetReference(out IDebugReference2 ppReference)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int GetSize(out uint pdwSize)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int SetValueAsReference(IDebugReference2[] rgpArgs, uint dwArgCount, IDebugReference2 pValue, uint dwTimeout)
+        {
+            throw new NotImplementedException();
+        }
+
+        public int SetValueAsString(string pszValue, uint dwRadix, uint dwTimeout)
+        {
+            string expr = "$"+_reg.Name+"="+pszValue;
+            string result = null;
+            _engine.DebuggedProcess.WorkerThread.RunOperation(async () =>
+            {
+                result = await _engine.DebuggedProcess.MICommandFactory.DataEvaluateExpression(expr, _engine.DebuggedProcess.MICommandFactory.CurrentThread, 0);
+            });
+            if (result != null)
+            {
+                _info.bstrValue = pszValue;
+                if(_reg.Name == "pc")
+                {
+                    _engine.DebuggedProcess.ThreadCache.MarkDirty();
+                }
+                return Constants.S_OK;
+            }
+            return Constants.S_FALSE;
+        }
+    }
+
     public class AD7RegGroupProperty : IDebugProperty2
     {
         private readonly AD7Engine _engine;
@@ -68,12 +156,39 @@ namespace Microsoft.MIDebugEngine
                     {
                         var desc = Array.Find(_values, (v) => { return v.Item1 == reg.Index; });
                         properties[i].bstrValue = desc == null ? "??" : desc.Item2;
+                        if (reg.Group.Name == "CPU")
+                        {
+                            Int64 val = Convert.ToInt64(properties[i].bstrValue, 16);
+                            properties[i].bstrValue = "0x"+val.ToString(reg.Name == "cpsr" ? "x8" : "x16", CultureInfo.InvariantCulture);
+                        }
+                        else if (reg.Group.Name == "IEEE Single")
+                        {
+                            int beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
+                            int end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
+                            properties[i].bstrValue = properties[i].bstrValue.Substring(beg, end - beg);
+                            var hex = Convert.ToInt32(properties[i].bstrValue, 16);
+                            float val = BitConverter.ToSingle(BitConverter.GetBytes(hex), 0);
+                            properties[i].bstrValue = val.ToString("R", CultureInfo.InvariantCulture);
+                        }
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_VALUE;
                     }
                     if ((dwFields & enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_ATTRIB) != 0)
                     {
-                        properties[i].dwAttrib = enum_DBG_ATTRIB_FLAGS.DBG_ATTRIB_VALUE_READONLY;
+                        properties[i].dwAttrib = 0;
+                        if (reg.Group.Name != "CPU")
+                        {
+                            properties[i].dwAttrib |= enum_DBG_ATTRIB_FLAGS.DBG_ATTRIB_VALUE_READONLY;
+                            if (reg.Group.Name == "IEEE Single")
+                            {
+                                properties[i].dwAttrib |= enum_DBG_ATTRIB_FLAGS.DBG_ATTRIB_VALUE_RAW_STRING;
+                            }
+                        }
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_ATTRIB;
+                    }
+                    if ((dwFields & enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_PROP) != 0)
+                    {
+                        properties[i].pProperty = new AD7RegProperty(_engine, reg, properties[i]);
+                        properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_PROP;
                     }
                     i++;
                 }
