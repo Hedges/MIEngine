@@ -181,6 +181,11 @@ namespace Microsoft.MIDebugEngine
                         pinfo[0].bstrModuleUrl = module.Name;
                         pinfo[0].dwFields |= enum_CONTEXT_INFO_FIELDS.CIF_MODULEURL;
                     }
+                    else if(_documentContext != null)
+                    {
+                        _documentContext.GetName(enum_GETNAME_TYPE.GN_URL, out pinfo[0].bstrModuleUrl);
+                        pinfo[0].dwFields |= enum_CONTEXT_INFO_FIELDS.CIF_MODULEURL;
+                    }
                 }
                 if ((dwFields & enum_CONTEXT_INFO_FIELDS.CIF_FUNCTION) != 0)
                 {
