@@ -699,6 +699,7 @@ namespace Microsoft.MIDebugEngine
                 commands.AddRange(_launchOptions.CustomLaunchSetupCommands);
 
                 SetTargetArch(_launchOptions.TargetArchitecture);
+                EngineUtils.SetTargetArch(_launchOptions.TargetArchitecture);
             }
             else
             {
@@ -994,6 +995,7 @@ namespace Microsoft.MIDebugEngine
             // 2. else if the user specified an architecture then use that
             // 3. otherwise default to x64
             SetTargetArch(DefaultArch()); // set the default value based on user input
+            EngineUtils.SetTargetArch(DefaultArch());
 
             Func<string, Task> successHandler = (string resultsStr) =>
             {
@@ -1002,6 +1004,7 @@ namespace Microsoft.MIDebugEngine
                 if (archFromTarget != TargetArchitecture.Unknown)
                 {
                     SetTargetArch(archFromTarget);
+                    EngineUtils.SetTargetArch(archFromTarget);
                 }
 
                 return Task.FromResult(0);

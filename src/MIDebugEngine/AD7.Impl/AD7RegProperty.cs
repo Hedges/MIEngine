@@ -158,17 +158,24 @@ namespace Microsoft.MIDebugEngine
                         properties[i].bstrValue = desc == null ? "??" : desc.Item2;
                         if (reg.Group.Name == "CPU")
                         {
-                            Int64 val = Convert.ToInt64(properties[i].bstrValue, 16);
-                            properties[i].bstrValue = "0x"+val.ToString(reg.Name == "cpsr" ? "x8" : "x16", CultureInfo.InvariantCulture);
+                            ulong val = Convert.ToUInt64(properties[i].bstrValue, 16);
+                            properties[i].bstrValue = EngineUtils.AsAddr(val, _engine.DebuggedProcess.Is64BitArch && (reg.Name != "cpsr"));
                         }
                         else if (reg.Group.Name == "IEEE Single")
                         {
-                            int beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
-                            int end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
-                            properties[i].bstrValue = properties[i].bstrValue.Substring(beg, end - beg);
-                            var hex = Convert.ToInt32(properties[i].bstrValue, 16);
-                            float val = BitConverter.ToSingle(BitConverter.GetBytes(hex), 0);
-                            properties[i].bstrValue = val.ToString("R", CultureInfo.InvariantCulture);
+                            int beg = 0, end = properties[i].bstrValue.Length;
+                            if(_engine.DebuggedProcess.Is64BitArch)
+                            {
+                                beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
+                                end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
+                            }
+                            if (end > beg)
+                            {
+                                properties[i].bstrValue = properties[i].bstrValue.Substring(beg, end - beg);
+                                var hex = Convert.ToInt32(properties[i].bstrValue, 16);
+                                float val = BitConverter.ToSingle(BitConverter.GetBytes(hex), 0);
+                                properties[i].bstrValue = val.ToString("R", CultureInfo.InvariantCulture);
+                            }
                         }
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_VALUE;
                     }

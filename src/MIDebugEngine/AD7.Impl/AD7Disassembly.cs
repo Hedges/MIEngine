@@ -14,6 +14,7 @@ namespace Microsoft.MIDebugEngine
         private AD7Engine _engine;
         private ulong _addr;
         private enum_DISASSEMBLY_STREAM_SCOPE _scope;
+        private IDebugCodeContext2 _context;
 
         internal AD7DisassemblyStream(AD7Engine engine, enum_DISASSEMBLY_STREAM_SCOPE scope, IDebugCodeContext2 pCodeContext)
         {
@@ -21,6 +22,7 @@ namespace Microsoft.MIDebugEngine
             _scope = scope;
             AD7MemoryAddress addr = pCodeContext as AD7MemoryAddress;
             _addr = addr.Address;
+            _context = pCodeContext;
         }
 
         #region IDebugDisassemblyStream2 Members
@@ -160,6 +162,32 @@ namespace Microsoft.MIDebugEngine
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES;
                         prgDisassembly[iOp].bstrCodeBytes = instruction.CodeBytes;
                     }
+                }
+
+                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                {
+                    if (_context != null)
+                    {
+                        _context.GetDocumentContext(out IDebugDocumentContext2 _srcctx);
+                        _srcctx.GetName(enum_GETNAME_TYPE.GN_URL, out string fileName);
+                        prgDisassembly[iOp].bstrDocumentUrl = "file://" + fileName;
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
+
+                        TEXT_POSITION[] beg = new TEXT_POSITION[1];
+                        TEXT_POSITION[] end = new TEXT_POSITION[1];
+                        _srcctx.GetStatementRange(beg, end);
+                        prgDisassembly[iOp].posBeg = beg[0];
+                        prgDisassembly[iOp].posEnd = end[0];
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
+                    }
+                }
+
+                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                {
+                    prgDisassembly[iOp].dwFlags = (enum_DISASSEMBLY_FLAGS)0;
+                    prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_HASSOURCE;
+                    //prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_DOCUMENTCHANGE;
+                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
                 }
 
                 iOp++;
