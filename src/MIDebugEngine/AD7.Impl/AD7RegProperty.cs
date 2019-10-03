@@ -159,7 +159,6 @@ namespace Microsoft.MIDebugEngine
                         if (reg.Group.Name == "CPU")
                         {
                             ulong val = Convert.ToUInt64(properties[i].bstrValue, 16);
-                            //properties[i].bstrValue = "0x"+val.ToString(reg.Name == "cpsr" ? "x8" : "x16", CultureInfo.InvariantCulture);
                             properties[i].bstrValue = EngineUtils.AsAddr(val, _engine.DebuggedProcess.Is64BitArch && (reg.Name != "cpsr"));
                         }
                         else if (reg.Group.Name == "IEEE Single")

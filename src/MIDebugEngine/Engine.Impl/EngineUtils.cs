@@ -15,6 +15,8 @@ namespace Microsoft.MIDebugEngine
 {
     public static class EngineUtils
     {
+        private static TargetArchitecture arch;
+
         internal static string AsAddr(ulong addr, bool is64bit)
         {
             string addrFormat = is64bit ? "x16" : "x8";
@@ -109,6 +111,11 @@ namespace Microsoft.MIDebugEngine
             }
         }
 
+        public static void SetTargetArch(TargetArchitecture _arch)
+        {
+            arch = _arch;
+        }
+
         //
         // The RegisterNameMap maps register names to logical group names. The architecture of 
         // the platform is described with all its varients. Any particular target may only contains a subset 
@@ -147,19 +154,29 @@ namespace Microsoft.MIDebugEngine
 
             private static readonly Entry[] s_X86Registers = new Entry[]
             {
+                new Entry( "rax", false, "CPU" ),
+                new Entry( "rbx", false, "CPU" ),
+                new Entry( "rcx", false, "CPU" ),
+                new Entry( "rdx", false, "CPU" ),
+                new Entry( "rsi", false, "CPU" ),
+                new Entry( "rdi", false, "CPU" ),
+                new Entry( "rbp", false, "CPU" ),
+                new Entry( "rsp", false, "CPU" ),
+                new Entry( "rip", false, "CPU" ),
+                new Entry( "r[0-9]+", true, "CPU"),
                 new Entry( "eax", false, "CPU" ),
+                new Entry( "ebx", false, "CPU" ),
                 new Entry( "ecx", false, "CPU" ),
                 new Entry( "edx", false, "CPU" ),
-                new Entry( "ebx", false, "CPU" ),
-                new Entry( "esp", false, "CPU" ),
-                new Entry( "ebp", false, "CPU" ),
                 new Entry( "esi", false, "CPU" ),
                 new Entry( "edi", false, "CPU" ),
+                new Entry( "esp", false, "CPU" ),
+                new Entry( "ebp", false, "CPU" ),
                 new Entry( "eip", false, "CPU" ),
                 new Entry( "eflags", false, "CPU" ),
                 new Entry( "cs", false, "CPU" ),
-                new Entry( "ss", false, "CPU" ),
                 new Entry( "ds", false, "CPU" ),
+                new Entry( "ss", false, "CPU" ),
                 new Entry( "es", false, "CPU" ),
                 new Entry( "fs", false, "CPU" ),
                 new Entry( "gs", false, "CPU" ),
@@ -175,20 +192,21 @@ namespace Microsoft.MIDebugEngine
                 new Entry( "mxcsr", false, "CPU" ),
                 new Entry( "orig_eax", false, "CPU" ),
                 new Entry( "al", false, "CPU" ),
+                new Entry( "bl", false, "CPU" ),
                 new Entry( "cl", false, "CPU" ),
                 new Entry( "dl", false, "CPU" ),
-                new Entry( "bl", false, "CPU" ),
                 new Entry( "ah", false, "CPU" ),
+                new Entry( "bh", false, "CPU" ),
                 new Entry( "ch", false, "CPU" ),
                 new Entry( "dh", false, "CPU" ),
-                new Entry( "bh", false, "CPU" ),
                 new Entry( "ax", false, "CPU" ),
+                new Entry( "bx", false, "CPU" ),
                 new Entry( "cx", false, "CPU" ),
                 new Entry( "dx", false, "CPU" ),
-                new Entry( "bx", false, "CPU" ),
-                new Entry( "bp", false, "CPU" ),
                 new Entry( "si", false, "CPU" ),
                 new Entry( "di", false, "CPU" ),
+                new Entry( "bp", false, "CPU" ),
+                new Entry( "sp", false, "CPU" ),
                 new Entry( "mm[0-7]", true, "MMX" ),
                 new Entry( "xmm[0-7]ih", true, "SSE2" ),
                 new Entry( "xmm[0-7]il", true, "SSE2" ),
@@ -199,6 +217,37 @@ namespace Microsoft.MIDebugEngine
                 new Entry( "mm[0-7][0-7]", true, "AMD3DNow" ),
             };
 
+            private static readonly Entry[] s_X64Registers = new Entry[]
+            {
+                new Entry( "rax", false, "CPU" ),
+                new Entry( "rbx", false, "CPU" ),
+                new Entry( "rcx", false, "CPU" ),
+                new Entry( "rdx", false, "CPU" ),
+                new Entry( "rsi", false, "CPU" ),
+                new Entry( "rdi", false, "CPU" ),
+                new Entry( "rbp", false, "CPU" ),
+                new Entry( "rsp", false, "CPU" ),
+                new Entry( "r8", false, "CPU" ),
+                new Entry( "r9", false, "CPU" ),
+                new Entry( "r10", false, "CPU" ),
+                new Entry( "r11", false, "CPU" ),
+                new Entry( "r12", false, "CPU" ),
+                new Entry( "r13", false, "CPU" ),
+                new Entry( "r14", false, "CPU" ),
+                new Entry( "r15", false, "CPU" ),
+                new Entry( "rip", false, "CPU" ),
+                new Entry( "eflags", false, "CPU" ),
+                new Entry( "cs", false, "CPU Segments" ),
+                new Entry( "ds", false, "CPU Segments" ),
+                new Entry( "es", false, "CPU Segments" ),
+                new Entry( "ss", false, "CPU Segments" ),
+                new Entry( "fs", false, "CPU Segments" ),
+                new Entry( "gs", false, "CPU Segments" ),
+                new Entry( "st[0-7]", true, "Floating Point" ),
+                new Entry( "xmm[0-9]+", true, "SSE" ),
+                new Entry( "ymm.+", true, "AVX" ),
+            };
+
             private static readonly Entry[] s_allRegisters = new Entry[]
             {
                     new Entry( ".+", true, "CPU"),
@@ -206,20 +255,25 @@ namespace Microsoft.MIDebugEngine
 
             public static RegisterNameMap Create(string[] registerNames)
             {
-                // TODO: more robust mechanism for determining processor architecture
                 RegisterNameMap map = new RegisterNameMap();
-				if (registerNames[0][0] == 'r' || registerNames[0][0] == 'x') // registers are prefixed with 'r' or 'x', assume ARM and initialize its register sets
-				{
-					map._map = s_arm32Registers;
-                }
-                else if (registerNames[0][0] == 'e') // x86 register set
+                switch (arch)
                 {
-                    map._map = s_X86Registers;
-                }
-                else
-                {
-                    // report one global register set
-                    map._map = s_allRegisters;
+                    case TargetArchitecture.ARM:
+                    case TargetArchitecture.ARM64:
+                        map._map = s_arm32Registers;
+                        break;
+
+                    case TargetArchitecture.X86:
+                        map._map = s_X86Registers;
+                        break;
+
+                    case TargetArchitecture.X64:
+                        map._map = s_X64Registers;
+                        break;
+
+                    default:
+                        map._map = s_allRegisters;
+                        break;
                 }
                 return map;
             }
