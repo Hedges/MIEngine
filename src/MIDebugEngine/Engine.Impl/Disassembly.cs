@@ -137,7 +137,7 @@ namespace Microsoft.MIDebugEngine
                 {
                     // push to the cache
                     DeleteRangeFromCache(block);    // removes any entry with the same key
-                    if (_disassemlyCache.Count >= cacheSize)
+                    if(_disassemlyCache.Count >= cacheSize)
                     {
                         long max = 0;
                         int toDelete = -1;
@@ -307,14 +307,17 @@ namespace Microsoft.MIDebugEngine
         // this is inefficient so we try and grab everything in one gulp
         internal static async Task<DisasmInstruction[]> Disassemble(DebuggedProcess process, ulong startAddr, ulong endAddr)
         {
-            string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 2";
+            //string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 2";
+            string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 1";
             Results results = await process.CmdAsync(cmd, ResultClass.None);
             if (results.ResultClass != ResultClass.done)
             {
                 return null;
             }
 
-            return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
+            //return DecodeDisassemblyInstructions(results.Find<ValueListValue>("src_and_asm_line").AsArray<TupleValue>());
+            IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
+            return disasm.ToArray();
         }
 
         // this is inefficient so we try and grab everything in one gulp
