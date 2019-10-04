@@ -172,7 +172,7 @@ namespace Microsoft.MIDebugEngine
                             if (end > beg)
                             {
                                 properties[i].bstrValue = properties[i].bstrValue.Substring(beg, end - beg);
-                                var hex = Convert.ToInt32(properties[i].bstrValue, 16);
+                                Int32 hex = Convert.ToInt32(properties[i].bstrValue, 16);
                                 float val = BitConverter.ToSingle(BitConverter.GetBytes(hex), 0);
                                 properties[i].bstrValue = val.ToString("R", CultureInfo.InvariantCulture);
                             }

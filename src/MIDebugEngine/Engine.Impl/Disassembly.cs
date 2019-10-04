@@ -130,33 +130,34 @@ namespace Microsoft.MIDebugEngine
         private ICollection<DisasmInstruction> UpdateCache(ulong address, int nInstructions, DisasmInstruction[] instructions)
         {
             ICollection<DisasmInstruction> ret = null;
-            if (instructions != null && instructions.Length > 0)
-            {
-                DisassemblyBlock block = new DisassemblyBlock(instructions);
-                lock (_disassemlyCache)
-                {
-                    // push to the cache
-                    DeleteRangeFromCache(block);    // removes any entry with the same key
-                    if(_disassemlyCache.Count >= cacheSize)
-                    {
-                        long max = 0;
-                        int toDelete = -1;
-                        for (int i = 0; i < _disassemlyCache.Count; ++i)
-                        {
-                            var e = _disassemlyCache.ElementAt(i);
-                            if (e.Value.Touch > max)
-                            {
-                                max = e.Value.Touch;
-                                toDelete = i;
-                            }
-                        }
-                        Debug.Assert(toDelete >= 0, "Failed to flush from the cache");
-                        _disassemlyCache.RemoveAt(toDelete);
-                    }
-                    _disassemlyCache.Add(block.Address, block);
-                }
-                var kv = block.TryFetch(address, nInstructions, out ret);
-            }
+            //if (instructions != null && instructions.Length > 0)
+            //{
+            //    DisassemblyBlock block = new DisassemblyBlock(instructions);
+            //    lock (_disassemlyCache)
+            //    {
+            //        // push to the cache
+            //        DeleteRangeFromCache(block);    // removes any entry with the same key
+            //        if(_disassemlyCache.Count >= cacheSize)
+            //        {
+            //            long max = 0;
+            //            int toDelete = -1;
+            //            for (int i = 0; i < _disassemlyCache.Count; ++i)
+            //            {
+            //                var e = _disassemlyCache.ElementAt(i);
+            //                if (e.Value.Touch > max)
+            //                {
+            //                    max = e.Value.Touch;
+            //                    toDelete = i;
+            //                }
+            //            }
+            //            Debug.Assert(toDelete >= 0, "Failed to flush from the cache");
+            //            _disassemlyCache.RemoveAt(toDelete);
+            //        }
+            //        _disassemlyCache.Add(block.Address, block);
+            //    }
+            //    var kv = block.TryFetch(address, nInstructions, out ret);
+            //}
+            ret = instructions;
             return ret;
         }
 
@@ -202,7 +203,6 @@ namespace Microsoft.MIDebugEngine
 
                 // when seeking back require that the disassembly contain an instruction at the target address (x86 has varying length instructions) 
                 instructions = await VerifyDisassembly(instructions, startAddress, endAddress, address);
-                nInstructions = instructions.Length;
 
                 ret = UpdateCache(address, -nInstructions, instructions);
                 if (ret == null)
@@ -271,7 +271,6 @@ namespace Microsoft.MIDebugEngine
             DisasmInstruction[] instructions = await Disassemble(_process, startAddress, endAddress);
 
             instructions = await VerifyDisassembly(instructions, startAddress, endAddress, address);
-            nInstructions = instructions.Length;
 
             return UpdateCache(address, nInstructions, instructions);
         }
@@ -298,8 +297,7 @@ namespace Microsoft.MIDebugEngine
             for (int i = 0; i < _disassemlyCache.Count; ++i)
             {
                 DisassemblyBlock elem = _disassemlyCache.ElementAt(i).Value;
-                //if (block.Contains(elem.Address, elem.Count))
-                if (block.Address == elem.Address)
+                if (block.Contains(elem.Address, elem.Count))
                 {
                     _disassemlyCache.RemoveAt(i);
                     break;
@@ -311,7 +309,7 @@ namespace Microsoft.MIDebugEngine
         internal static async Task<DisasmInstruction[]> Disassemble(DebuggedProcess process, ulong startAddr, ulong endAddr)
         {
             //string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 2";
-            string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 1";
+            string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
             Results results = await process.CmdAsync(cmd, ResultClass.None);
             if (results.ResultClass != ResultClass.done)
             {

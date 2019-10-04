@@ -106,18 +106,9 @@ namespace Microsoft.MIDebugEngine
             IEnumerable<DisasmInstruction> instructions = null;
             _engine.DebuggedProcess.WorkerThread.RunOperation(async () =>
             {
-                //_context.GetDocumentContext(out IDebugDocumentContext2 _srcctx);
-                //_srcctx.GetName(enum_GETNAME_TYPE.GN_URL, out string fileName);
-                //TEXT_POSITION[] beg = new TEXT_POSITION[1];
-                //TEXT_POSITION[] end = new TEXT_POSITION[1];
-                //_srcctx.GetStatementRange(beg, end);
-                //instructions = await _engine.DebuggedProcess.Disassembly.Disassemble(_engine.DebuggedProcess, fileName, beg[0].dwLine, dwInstructions);
-                //if(instructions == null)
-                //{
-                    instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)dwInstructions);
-                //}
+                instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)dwInstructions);
             });
-            if(instructions == null/* || (instructions.First().Addr - _addr > dwInstructions)*/)
+            if(instructions == null || (instructions.First().Addr - _addr > dwInstructions))
             {
                 // bad address range, return '??'
                 for(iOp = 0; iOp < dwInstructions; _addr++, ++iOp)
@@ -128,13 +119,11 @@ namespace Microsoft.MIDebugEngine
                 return Constants.S_OK;
             }
 
-            //// return '??' for bad addresses at start of range
-            //for(iOp = 0; _addr < instructions.First().Addr; _addr++, iOp++)
-            //{
-            //    prgDisassembly[iOp] = FetchBadInstruction(dwFields);
-            //}
-
-            bool docChange = true;
+            // return '??' for bad addresses at start of range
+            for (iOp = 0; _addr < instructions.First().Addr; _addr++, iOp++)
+            {
+                prgDisassembly[iOp] = FetchBadInstruction(dwFields);
+            }
 
             foreach (DisasmInstruction instruction in instructions)
             {
@@ -182,30 +171,23 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    //if (_context != null)
-                    //{
-                    //    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
-                    //    _context.GetDocumentContext(out IDebugDocumentContext2 _srcctx);
-                    //    _srcctx.GetName(enum_GETNAME_TYPE.GN_URL, out string fileName);
-                    //    prgDisassembly[iOp].bstrDocumentUrl = "file://" + fileName;
-
-                    //    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
-                    //    TEXT_POSITION[] beg = new TEXT_POSITION[1];
-                    //    TEXT_POSITION[] end = new TEXT_POSITION[1];
-                    //    _srcctx.GetStatementRange(beg, end);
-                    //    prgDisassembly[iOp].posBeg = beg[0];
-                    //    prgDisassembly[iOp].posEnd = end[0];
-                    //}
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
-                    prgDisassembly[iOp].bstrDocumentUrl = "file://"+instruction.File;
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
-                    prgDisassembly[iOp].posBeg.dwLine = instruction.Line;
-                    prgDisassembly[iOp].posBeg.dwColumn = 0;
-                    prgDisassembly[iOp].posEnd.dwLine = instruction.Line;
-                    prgDisassembly[iOp].posEnd.dwColumn = 0;
+                    prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
                 }
 
-                if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                {
+                    if (instruction.OffsetInLine == 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
+                        prgDisassembly[iOp].posBeg.dwLine = instruction.Line;
+                        prgDisassembly[iOp].posBeg.dwColumn = 0;
+                        prgDisassembly[iOp].posEnd.dwLine = instruction.Line;
+                        prgDisassembly[iOp].posEnd.dwColumn = 0;
+                    }
+                }
+
+                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET;
                     prgDisassembly[iOp].dwByteOffset = instruction.Offset;
@@ -213,14 +195,18 @@ namespace Microsoft.MIDebugEngine
 
                 if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
+                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
                     prgDisassembly[iOp].dwFlags = (enum_DISASSEMBLY_FLAGS)0;
-                    if(docChange)
+                    if (iOp == 0)
                     {
                         prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_DOCUMENTCHANGE;
-                        docChange = false;
                     }
                     prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_HASSOURCE;
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
+                    AD7MemoryAddress addr = _context as AD7MemoryAddress;
+                    if (instruction.Addr == addr.Address)
+                    {
+                        prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_INSTRUCTION_ACTIVE;
+                    }
                 }
 
                 iOp++;
