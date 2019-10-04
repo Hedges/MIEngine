@@ -130,34 +130,34 @@ namespace Microsoft.MIDebugEngine
         private ICollection<DisasmInstruction> UpdateCache(ulong address, int nInstructions, DisasmInstruction[] instructions)
         {
             ICollection<DisasmInstruction> ret = null;
-            //if (instructions != null && instructions.Length > 0)
-            //{
-            //    DisassemblyBlock block = new DisassemblyBlock(instructions);
-            //    lock (_disassemlyCache)
-            //    {
-            //        // push to the cache
-            //        DeleteRangeFromCache(block);    // removes any entry with the same key
-            //        if(_disassemlyCache.Count >= cacheSize)
-            //        {
-            //            long max = 0;
-            //            int toDelete = -1;
-            //            for (int i = 0; i < _disassemlyCache.Count; ++i)
-            //            {
-            //                var e = _disassemlyCache.ElementAt(i);
-            //                if (e.Value.Touch > max)
-            //                {
-            //                    max = e.Value.Touch;
-            //                    toDelete = i;
-            //                }
-            //            }
-            //            Debug.Assert(toDelete >= 0, "Failed to flush from the cache");
-            //            _disassemlyCache.RemoveAt(toDelete);
-            //        }
-            //        _disassemlyCache.Add(block.Address, block);
-            //    }
-            //    var kv = block.TryFetch(address, nInstructions, out ret);
-            //}
-            ret = instructions;
+            if(instructions != null && instructions.Length > 0)
+            {
+                DisassemblyBlock block = new DisassemblyBlock(instructions);
+                lock(_disassemlyCache)
+                {
+                    // push to the cache
+                    DeleteRangeFromCache(block);    // removes any entry with the same key
+                    if(_disassemlyCache.Count >= cacheSize)
+                    {
+                        long max = 0;
+                        int toDelete = -1;
+                        for(int i = 0; i < _disassemlyCache.Count; ++i)
+                        {
+                            var e = _disassemlyCache.ElementAt(i);
+                            if(e.Value.Touch > max)
+                            {
+                                max = e.Value.Touch;
+                                toDelete = i;
+                            }
+                        }
+                        Debug.Assert(toDelete >= 0, "Failed to flush from the cache");
+                        _disassemlyCache.RemoveAt(toDelete);
+                    }
+                    _disassemlyCache.Add(block.Address, block);
+                }
+                var kv = block.TryFetch(address, nInstructions, out ret);
+            }
+            //ret = instructions;
             return ret;
         }
 
