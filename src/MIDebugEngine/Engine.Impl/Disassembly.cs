@@ -202,6 +202,7 @@ namespace Microsoft.MIDebugEngine
 
                 // when seeking back require that the disassembly contain an instruction at the target address (x86 has varying length instructions) 
                 instructions = await VerifyDisassembly(instructions, startAddress, endAddress, address);
+                nInstructions = instructions.Length;
 
                 ret = UpdateCache(address, -nInstructions, instructions);
                 if (ret == null)
@@ -270,6 +271,7 @@ namespace Microsoft.MIDebugEngine
             DisasmInstruction[] instructions = await Disassemble(_process, startAddress, endAddress);
 
             instructions = await VerifyDisassembly(instructions, startAddress, endAddress, address);
+            nInstructions = instructions.Length;
 
             return UpdateCache(address, nInstructions, instructions);
         }
@@ -296,7 +298,8 @@ namespace Microsoft.MIDebugEngine
             for (int i = 0; i < _disassemlyCache.Count; ++i)
             {
                 DisassemblyBlock elem = _disassemlyCache.ElementAt(i).Value;
-                if (block.Contains(elem.Address, elem.Count))
+                //if (block.Contains(elem.Address, elem.Count))
+                if (block.Address == elem.Address)
                 {
                     _disassemlyCache.RemoveAt(i);
                     break;

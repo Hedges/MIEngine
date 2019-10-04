@@ -117,16 +117,16 @@ namespace Microsoft.MIDebugEngine
                     instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)dwInstructions);
                 //}
             });
-            //if(instructions == null || (instructions.First().Addr - _addr > dwInstructions))
-            //{
-            //    // bad address range, return '??'
-            //    for(iOp = 0; iOp < dwInstructions; _addr++, ++iOp)
-            //    {
-            //        prgDisassembly[iOp] = FetchBadInstruction(dwFields);
-            //    }
-            //    pdwInstructionsRead = iOp;
-            //    return Constants.S_OK;
-            //}
+            if(instructions == null/* || (instructions.First().Addr - _addr > dwInstructions)*/)
+            {
+                // bad address range, return '??'
+                for(iOp = 0; iOp < dwInstructions; _addr++, ++iOp)
+                {
+                    prgDisassembly[iOp] = FetchBadInstruction(dwFields);
+                }
+                pdwInstructionsRead = iOp;
+                return Constants.S_OK;
+            }
 
             //// return '??' for bad addresses at start of range
             //for(iOp = 0; _addr < instructions.First().Addr; _addr++, iOp++)
