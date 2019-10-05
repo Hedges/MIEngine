@@ -130,21 +130,21 @@ namespace Microsoft.MIDebugEngine
         private ICollection<DisasmInstruction> UpdateCache(ulong address, int nInstructions, DisasmInstruction[] instructions)
         {
             ICollection<DisasmInstruction> ret = null;
-            if(instructions != null && instructions.Length > 0)
+            if (instructions != null && instructions.Length > 0)
             {
                 DisassemblyBlock block = new DisassemblyBlock(instructions);
-                lock(_disassemlyCache)
+                lock (_disassemlyCache)
                 {
                     // push to the cache
                     DeleteRangeFromCache(block);    // removes any entry with the same key
-                    if(_disassemlyCache.Count >= cacheSize)
+                    if (_disassemlyCache.Count >= cacheSize)
                     {
                         long max = 0;
                         int toDelete = -1;
-                        for(int i = 0; i < _disassemlyCache.Count; ++i)
+                        for (int i = 0; i < _disassemlyCache.Count; ++i)
                         {
                             var e = _disassemlyCache.ElementAt(i);
-                            if(e.Value.Touch > max)
+                            if (e.Value.Touch > max)
                             {
                                 max = e.Value.Touch;
                                 toDelete = i;
@@ -157,7 +157,6 @@ namespace Microsoft.MIDebugEngine
                 }
                 var kv = block.TryFetch(address, nInstructions, out ret);
             }
-            //ret = instructions;
             return ret;
         }
 
@@ -316,9 +315,15 @@ namespace Microsoft.MIDebugEngine
                 return null;
             }
 
-            //return DecodeDisassemblyInstructions(results.Find<ValueListValue>("src_and_asm_line").AsArray<TupleValue>());
-            IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
-            return disasm.ToArray();
+            try
+            {
+                IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
+                return disasm.ToArray();
+            }
+            catch(Exception e)
+            {
+            }
+            return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
         }
 
         // this is inefficient so we try and grab everything in one gulp
