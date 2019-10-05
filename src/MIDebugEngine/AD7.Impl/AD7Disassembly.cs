@@ -15,7 +15,7 @@ namespace Microsoft.MIDebugEngine
         private ulong _addr;
         private enum_DISASSEMBLY_STREAM_SCOPE _scope;
         private IDebugCodeContext2 _context;
-        //private string sourceFile = "";
+        private string sourceFile = "";
 
         internal AD7DisassemblyStream(AD7Engine engine, enum_DISASSEMBLY_STREAM_SCOPE scope, IDebugCodeContext2 pCodeContext)
         {
@@ -195,12 +195,9 @@ namespace Microsoft.MIDebugEngine
                 {
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
                     prgDisassembly[iOp].dwFlags = (enum_DISASSEMBLY_FLAGS)0;
-                    //if(sourceFile != prgDisassembly[iOp].bstrDocumentUrl)
-                    //{
-                    //    sourceFile = prgDisassembly[iOp].bstrDocumentUrl;
-                    //}
-                    if(iOp == 0)
+                    if(sourceFile != prgDisassembly[iOp].bstrDocumentUrl)
                     {
+                        sourceFile = prgDisassembly[iOp].bstrDocumentUrl;
                         prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_DOCUMENTCHANGE;
                     }
                     prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_HASSOURCE;
