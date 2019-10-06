@@ -307,7 +307,6 @@ namespace Microsoft.MIDebugEngine
         // this is inefficient so we try and grab everything in one gulp
         internal static async Task<DisasmInstruction[]> Disassemble(DebuggedProcess process, ulong startAddr, ulong endAddr)
         {
-            //string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 2";
             string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
             Results results = await process.CmdAsync(cmd, ResultClass.None);
             if (results.ResultClass != ResultClass.done)
@@ -322,6 +321,21 @@ namespace Microsoft.MIDebugEngine
             }
             catch(Exception e)
             {
+            }
+
+            try
+            {
+                return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
+            }
+            catch(Exception e)
+            {
+            }
+
+            cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 2";
+            results = await process.CmdAsync(cmd, ResultClass.None);
+            if(results.ResultClass != ResultClass.done)
+            {
+                return null;
             }
             return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
         }
