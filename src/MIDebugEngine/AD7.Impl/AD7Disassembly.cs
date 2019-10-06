@@ -15,7 +15,8 @@ namespace Microsoft.MIDebugEngine
         private ulong _addr;
         private enum_DISASSEMBLY_STREAM_SCOPE _scope;
         private IDebugCodeContext2 _context;
-        private string sourceFile = "";
+        private string lastSource = "";
+        private string lastSymbol = "";
 
         internal AD7DisassemblyStream(AD7Engine engine, enum_DISASSEMBLY_STREAM_SCOPE scope, IDebugCodeContext2 pCodeContext)
         {
@@ -136,6 +137,8 @@ namespace Microsoft.MIDebugEngine
 
                 bool hasSource = !string.IsNullOrWhiteSpace(instruction.File);
 
+                bool hasSymbol = (instruction.Offset == 0) || (instruction.Symbol != lastSymbol);
+
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS) != 0)
                 {
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS;
@@ -150,10 +153,11 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL) != 0)
                 {
-                    if (instruction.Offset == 0)
-                    {
+                    if(hasSymbol)
+                    { 
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL;
-                        prgDisassembly[iOp].bstrSymbol = instruction.Symbol ?? string.Empty;
+                        lastSymbol = instruction.Symbol ?? "";
+                        prgDisassembly[iOp].bstrSymbol = lastSymbol;
                     }
                 }
 
@@ -174,7 +178,7 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    if(hasSource)
+                    if(hasSource && !hasSymbol)
                     {
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
                         prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
@@ -183,7 +187,7 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    if(hasSource && (instruction.OffsetInLine == 0))
+                    if(hasSource && (instruction.OffsetInLine == 0) && !hasSymbol)
                     {
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
                         prgDisassembly[iOp].posBeg.dwLine = instruction.Line - 1;
@@ -202,12 +206,12 @@ namespace Microsoft.MIDebugEngine
                 if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
-                    if(hasSource)
+                    if(hasSource && !hasSymbol)
                     {
                         prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_HASSOURCE;
-                        if(sourceFile != prgDisassembly[iOp].bstrDocumentUrl)
+                        if(lastSource != prgDisassembly[iOp].bstrDocumentUrl)
                         {
-                            sourceFile = prgDisassembly[iOp].bstrDocumentUrl;
+                            lastSource = prgDisassembly[iOp].bstrDocumentUrl;
                             prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_DOCUMENTCHANGE;
                         }
                     }
