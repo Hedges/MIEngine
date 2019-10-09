@@ -377,7 +377,7 @@ namespace Microsoft.MIDebugEngine
         {
             foreach (var item in items)
             {
-                uint line = item.FindUint("line");
+                uint line = item.TryFindUint("line") ?? 1;
                 string file = process.GetMappedFileFromTuple(item);
                 ValueListValue asm_items = item.Find<ValueListValue>("line_asm_insn");
                 uint lineOffset = 0;
