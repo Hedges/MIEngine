@@ -174,7 +174,7 @@ namespace Microsoft.MIDebugEngine
                                 properties[i].bstrValue = properties[i].bstrValue.Substring(beg, end - beg);
                                 Int32 hex = Convert.ToInt32(properties[i].bstrValue, 16);
                                 float val = BitConverter.ToSingle(BitConverter.GetBytes(hex), 0);
-                                properties[i].bstrValue = val.ToString("G9", CultureInfo.InvariantCulture);
+                                properties[i].bstrValue = val.ToString("e10", CultureInfo.InvariantCulture);
                             }
                         }
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_VALUE;
