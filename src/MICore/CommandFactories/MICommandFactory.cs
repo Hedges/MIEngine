@@ -418,7 +418,7 @@ namespace MICore
 
         #region Breakpoints
 
-        protected virtual Task<StringBuilder> BuildBreakInsert(string condition, bool enabled)
+        public virtual Task<StringBuilder> BuildBreakInsert(string condition, bool enabled)
         {
             StringBuilder cmd = new StringBuilder("-break-insert -f ");
             if (condition != null)
@@ -673,12 +673,6 @@ namespace MICore
         {
             return false;
         }
-
-        public virtual Task<bool> RequiresOnKeywordForBreakInsert()
-        {
-            return Task<bool>.FromResult(false);
-        }
-
         #endregion
     }
 }
