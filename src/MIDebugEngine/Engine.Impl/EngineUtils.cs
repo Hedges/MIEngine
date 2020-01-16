@@ -148,7 +148,7 @@ namespace Microsoft.MIDebugEngine
                 new Entry( "f[0-9]+", true, "FPU"),
                 new Entry( "s[0-9]+", true, "IEEE Single"),
                 new Entry( "d[0-9]+", true, "IEEE Double"),
-                new Entry( "q[0-9]+", true, "Vector"),
+                new Entry( "q[0-9]+", true, "NEON"),
 				new Entry( "v[0-9]+", true, "Vector"),
 			};
 

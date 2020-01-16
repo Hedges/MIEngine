@@ -164,7 +164,7 @@ namespace Microsoft.MIDebugEngine
                         else if (reg.Group.Name == "IEEE Single")
                         {
                             int beg = 0, end = properties[i].bstrValue.Length;
-                            if(_engine.DebuggedProcess.Is64BitArch)
+                            if (_engine.DebuggedProcess.Is64BitArch)
                             {
                                 beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
                                 end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
@@ -177,6 +177,34 @@ namespace Microsoft.MIDebugEngine
                                 properties[i].bstrValue = val.ToString("e10", CultureInfo.InvariantCulture);
                             }
                         }
+                        else if (reg.Group.Name == "NEON")
+                        {
+                            int beg = 0, end = properties[i].bstrValue.Length;
+                            if (_engine.DebuggedProcess.Is64BitArch)
+                            {
+                                beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
+                                end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
+                            }
+                            if (end > beg)
+                            {
+                                string r = "";
+                                beg = end - 8;
+                                for (int c = 0; c < 4; c++)
+                                {
+                                    string s = properties[i].bstrValue.Substring(beg, end - beg);
+                                    UInt32 h = Convert.ToUInt32(s, 16);
+                                    float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                                    r += v.ToString("e10", CultureInfo.InvariantCulture);
+                                    if (c != 3)
+                                    {
+                                        r += ", ";
+                                    }
+                                    beg -= 8;
+                                    end -= 8;
+                                }
+                                properties[i].bstrValue = r;
+                            }
+                        }
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_VALUE;
                     }
                     if ((dwFields & enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_ATTRIB) != 0)
@@ -185,7 +213,7 @@ namespace Microsoft.MIDebugEngine
                         if (reg.Group.Name != "CPU")
                         {
                             properties[i].dwAttrib |= enum_DBG_ATTRIB_FLAGS.DBG_ATTRIB_VALUE_READONLY;
-                            if (reg.Group.Name == "IEEE Single")
+                            if ((reg.Group.Name == "IEEE Single") || (reg.Group.Name == "NEON"))
                             {
                                 properties[i].dwAttrib |= enum_DBG_ATTRIB_FLAGS.DBG_ATTRIB_VALUE_RAW_STRING;
                             }
