@@ -149,7 +149,7 @@ namespace Microsoft.MIDebugEngine
                     properties[i].dwFields = 0;
                     if ((dwFields & enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_NAME) != 0)
                     {
-                        properties[i].bstrName = reg.Name;
+                        properties[i].bstrName = reg.Name.PadLeft(3, ' ');
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_NAME;
                     }
                     if ((dwFields & enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_VALUE) != 0)
@@ -171,10 +171,10 @@ namespace Microsoft.MIDebugEngine
                             }
                             if (end > beg)
                             {
-                                properties[i].bstrValue = properties[i].bstrValue.Substring(beg, end - beg);
-                                Int32 hex = Convert.ToInt32(properties[i].bstrValue, 16);
-                                float val = BitConverter.ToSingle(BitConverter.GetBytes(hex), 0);
-                                properties[i].bstrValue = val.ToString("e10", CultureInfo.InvariantCulture);
+                                string s = properties[i].bstrValue.Substring(beg, end - beg);
+                                UInt32 h = Convert.ToUInt32(s, 16);
+                                float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                                properties[i].bstrValue = v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
                             }
                         }
                         else if (reg.Group.Name == "NEON")
@@ -194,7 +194,7 @@ namespace Microsoft.MIDebugEngine
                                     string s = properties[i].bstrValue.Substring(beg, end - beg);
                                     UInt32 h = Convert.ToUInt32(s, 16);
                                     float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
-                                    r += v.ToString("e10", CultureInfo.InvariantCulture);
+                                    r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
                                     if (c != 3)
                                     {
                                         r += ", ";
