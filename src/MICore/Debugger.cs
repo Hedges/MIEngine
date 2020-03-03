@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
+﻿    // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
@@ -794,11 +794,20 @@ namespace MICore
             return outStr.ToString();
         }
 
-        public async Task<string> ConsoleCmdAsync(string cmd, bool ignoreFailures = false)
+        /// <summary>
+        /// Sends 'cmd' to the debuggee as a console command.
+        /// </summary>
+        /// <param name="cmd">The command to send.</param>
+        /// <param name="allowWhileRunning">Set to 'true' if the process can be running while the command is executed.</param>
+        /// <param name="ignoreFailures">Ignore any failure that occur when executing the command.</param>
+        /// <returns></returns>
+        public async Task<string> ConsoleCmdAsync(string cmd, bool allowWhileRunning, bool ignoreFailures = false)
         {
-            if (this.ProcessState != ProcessState.Stopped && this.ProcessState != ProcessState.NotConnected)
+            if (!(this.ProcessState == ProcessState.Running && allowWhileRunning) &&
+                this.ProcessState != ProcessState.Stopped &&
+                this.ProcessState != ProcessState.NotConnected)
             {
-                if (this.ProcessState == MICore.ProcessState.Exited)
+                if (this.ProcessState == ProcessState.Exited)
                 {
                     throw new DebuggerDisposedException(GetTargetProcessExitedReason());
                 }
@@ -811,9 +820,11 @@ namespace MICore
             using (ExclusiveLockToken lockToken = await _commandLock.AquireExclusive())
             {
                 // check again now that we have the lock
-                if (this.ProcessState != MICore.ProcessState.Stopped && this.ProcessState != ProcessState.NotConnected)
+                if (!(this.ProcessState == ProcessState.Running && allowWhileRunning) &&
+                    this.ProcessState != ProcessState.Stopped &&
+                    this.ProcessState != ProcessState.NotConnected)
                 {
-                    if (this.ProcessState == MICore.ProcessState.Exited)
+                    if (this.ProcessState == ProcessState.Exited)
                     {
                         throw new DebuggerDisposedException(GetTargetProcessExitedReason());
                     }
@@ -1129,7 +1140,26 @@ namespace MICore
                     string miError = null;
                     if (results.ResultClass == ResultClass.error)
                     {
-                        miError = results.FindString("msg");
+                        // Fixes: https://github.com/microsoft/vscode-cpptools/issues/2492
+                        try
+                        {
+                            miError = results.FindString("msg");
+                        }
+                        catch (MIResultFormatException)
+                        {
+                            try
+                            {
+                                // TODO: Remove after update to mainline lldb-mi
+                                // lldb-mi has certain instances (such as the -exec-* commands) that calls the message
+                                // "message" instead of "msg"
+                                miError = results.FindString("message");
+                            }
+                            catch (MIResultFormatException)
+                            {
+                                // make the error a generic '<Unknown Error>' message
+                                miError = MICoreResources.Error_UnknownError;
+                            }
+                        }
                     }
                     else
                     {
