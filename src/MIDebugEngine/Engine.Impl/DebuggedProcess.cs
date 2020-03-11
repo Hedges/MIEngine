@@ -1201,8 +1201,9 @@ namespace Microsoft.MIDebugEngine
                     }
                     else
                     {
-                        // not one of our breakpoints, so stop with a message
-                        _callback.OnException(thread, "Unknown breakpoint", "", 0);
+                        //// not one of our breakpoints, so stop with a message
+                        //_callback.OnException(thread, "Unknown breakpoint", "", 0);
+                        _callback.OnAsyncBreakComplete(thread);
                     }
                 }
             }

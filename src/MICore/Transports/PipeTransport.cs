@@ -26,7 +26,7 @@ namespace MICore
         private string _pipePath;
         private string _cmdArgs;
 
-        public PipeTransport(bool killOnClose = false, bool filterStderr = false, bool filterStdout = false) : base(filterStdout)
+        public PipeTransport(bool killOnClose = true, bool filterStderr = false, bool filterStdout = false) : base(filterStdout)
         {
             _killOnClose = killOnClose;
             _filterStderr = filterStderr;
