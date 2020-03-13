@@ -1132,12 +1132,12 @@ namespace Microsoft.MIDebugEngine
                     TupleValue frame = results.Results.TryFind<TupleValue>("frame");
                     if (frame.Contains("file"))
                     {
-                        this.EntrypointHit = true;
+                        //this.EntrypointHit = true;
                     }
                 }
                 else
                 {
-                    this.EntrypointHit = true;
+                    //this.EntrypointHit = true;
                 }
 
                 CmdContinueAsync();
@@ -1201,9 +1201,8 @@ namespace Microsoft.MIDebugEngine
                     }
                     else
                     {
-                        //// not one of our breakpoints, so stop with a message
-                        //_callback.OnException(thread, "Unknown breakpoint", "", 0);
-                        _callback.OnAsyncBreakComplete(thread);
+                        // not one of our breakpoints, so stop with a message
+                        _callback.OnException(thread, "Unknown breakpoint", "", 0);
                     }
                 }
             }
@@ -1299,12 +1298,11 @@ namespace Microsoft.MIDebugEngine
             }
             else
             {
-                //if (breakRequest == BreakRequest.None)
-                //{
-                //    Debug.Fail("Unknown stopping reason");
-                //    _callback.OnException(thread, "Unknown", "Unknown stopping event", 0);
-                //}
-                _callback.OnAsyncBreakComplete(thread);
+                if (breakRequest == BreakRequest.None)
+                {
+                    Debug.Fail("Unknown stopping reason");
+                    _callback.OnException(thread, "Unknown", "Unknown stopping event", 0);
+                }
             }
             if (IsExternalBreakRequest(breakRequest))
             {
