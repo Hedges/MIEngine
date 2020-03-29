@@ -381,22 +381,39 @@ namespace Microsoft.MIDebugEngine
                 string file = process.GetMappedFileFromTuple(item);
                 ValueListValue asm_items = item.Find<ValueListValue>("line_asm_insn");
                 uint lineOffset = 0;
-                foreach (var asm_item in asm_items.Content)
+                if(asm_items.Length != 0)
+                {
+                    foreach(var asm_item in asm_items.Content)
+                    {
+                        DisasmInstruction disassemblyData = new DisasmInstruction();
+                        disassemblyData.Addr = asm_item.FindAddr("address");
+                        disassemblyData.AddressString = asm_item.FindString("address");
+                        disassemblyData.Symbol = asm_item.TryFindString("func-name");
+                        disassemblyData.Offset = asm_item.Contains("offset") ? asm_item.FindUint("offset") : 0;
+                        disassemblyData.Opcode = asm_item.FindString("inst");
+                        disassemblyData.CodeBytes = asm_item.TryFindString("opcodes");
+                        disassemblyData.Line = line;
+                        disassemblyData.File = file;
+                        if(lineOffset == 0)
+                        {
+                            lineOffset = disassemblyData.Offset;    // offset to start of current line
+                        }
+                        disassemblyData.OffsetInLine = disassemblyData.Offset - lineOffset;
+                        yield return disassemblyData;
+                    }
+                }
+                else
                 {
                     DisasmInstruction disassemblyData = new DisasmInstruction();
-                    disassemblyData.Addr = asm_item.FindAddr("address");
-                    disassemblyData.AddressString = asm_item.FindString("address");
-                    disassemblyData.Symbol = asm_item.TryFindString("func-name");
-                    disassemblyData.Offset = asm_item.Contains("offset") ? asm_item.FindUint("offset") : 0;
-                    disassemblyData.Opcode = asm_item.FindString("inst");
-                    disassemblyData.CodeBytes = asm_item.TryFindString("opcodes");
+                    disassemblyData.Addr = 0;
+                    disassemblyData.AddressString = "";
+                    disassemblyData.Symbol = "";
+                    disassemblyData.Offset = 0;
+                    disassemblyData.Opcode = "";
+                    disassemblyData.CodeBytes = "";
                     disassemblyData.Line = line;
                     disassemblyData.File = file;
-                    if (lineOffset == 0)
-                    {
-                        lineOffset = disassemblyData.Offset;    // offset to start of current line
-                    }
-                    disassemblyData.OffsetInLine = disassemblyData.Offset - lineOffset;
+                    disassemblyData.OffsetInLine = 0;
                     yield return disassemblyData;
                 }
             }

@@ -139,72 +139,31 @@ namespace Microsoft.MIDebugEngine
 
                 bool hasSymbol = (instruction.Offset == 0) || (instruction.Symbol != lastSymbol);
 
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS) != 0)
+                if(_addr == 0)
                 {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS;
-                    prgDisassembly[iOp].bstrAddress = instruction.AddressString;
-                }
+                    hasSymbol = false;
 
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID) != 0)
-                {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID;
-                    prgDisassembly[iOp].uCodeLocationId = instruction.Addr;
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL) != 0)
-                {
-                    if(hasSymbol)
-                    { 
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL;
-                        lastSymbol = instruction.Symbol ?? "";
-                        prgDisassembly[iOp].bstrSymbol = lastSymbol;
-                    }
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE) != 0)
-                {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE;
-                    prgDisassembly[iOp].bstrOpcode = instruction.Opcode;
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES) != 0)
-                {
-                    if (!string.IsNullOrWhiteSpace(instruction.CodeBytes))
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                     {
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES;
-                        prgDisassembly[iOp].bstrCodeBytes = instruction.CodeBytes;
+                        if(hasSource && !hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
+                            prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
+                        }
                     }
-                }
 
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
-                {
-                    if(hasSource && !hasSymbol)
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                     {
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
-                        prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
+                        if(hasSource && (instruction.OffsetInLine == 0) && !hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
+                            prgDisassembly[iOp].posBeg.dwLine = instruction.Line - 1;
+                            prgDisassembly[iOp].posBeg.dwColumn = 0;
+                            prgDisassembly[iOp].posEnd.dwLine = instruction.Line - 1;
+                            prgDisassembly[iOp].posEnd.dwColumn = uint.MaxValue;
+                        }
                     }
-                }
 
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
-                {
-                    if(hasSource && (instruction.OffsetInLine == 0) && !hasSymbol)
-                    {
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
-                        prgDisassembly[iOp].posBeg.dwLine = instruction.Line - 1;
-                        prgDisassembly[iOp].posBeg.dwColumn = 0;
-                        prgDisassembly[iOp].posEnd.dwLine = instruction.Line - 1;
-                        prgDisassembly[iOp].posEnd.dwColumn = uint.MaxValue;
-                    }
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
-                {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET;
-                    prgDisassembly[iOp].dwByteOffset = hasSource ? instruction.OffsetInLine : instruction.Offset;
-                }
-
-                if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
-                {
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
                     if(hasSource && !hasSymbol)
                     {
@@ -216,9 +175,94 @@ namespace Microsoft.MIDebugEngine
                         }
                     }
                     AD7MemoryAddress addr = _context as AD7MemoryAddress;
-                    if (instruction.Addr == addr.Address)
+                    if(instruction.Addr == addr.Address)
                     {
                         prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_INSTRUCTION_ACTIVE;
+                    }
+                }
+                else
+                {
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS) != 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS;
+                        prgDisassembly[iOp].bstrAddress = instruction.AddressString;
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID) != 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID;
+                        prgDisassembly[iOp].uCodeLocationId = instruction.Addr;
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL) != 0)
+                    {
+                        if(hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL;
+                            lastSymbol = instruction.Symbol ?? "";
+                            prgDisassembly[iOp].bstrSymbol = lastSymbol;
+                        }
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE) != 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE;
+                        prgDisassembly[iOp].bstrOpcode = instruction.Opcode;
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES) != 0)
+                    {
+                        if(!string.IsNullOrWhiteSpace(instruction.CodeBytes))
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES;
+                            prgDisassembly[iOp].bstrCodeBytes = instruction.CodeBytes;
+                        }
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                    {
+                        if(hasSource && !hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
+                            prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
+                        }
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                    {
+                        if(hasSource && (instruction.OffsetInLine == 0) && !hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
+                            prgDisassembly[iOp].posBeg.dwLine = instruction.Line - 1;
+                            prgDisassembly[iOp].posBeg.dwColumn = 0;
+                            prgDisassembly[iOp].posEnd.dwLine = instruction.Line - 1;
+                            prgDisassembly[iOp].posEnd.dwColumn = uint.MaxValue;
+                        }
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET;
+                        prgDisassembly[iOp].dwByteOffset = hasSource ? instruction.OffsetInLine : instruction.Offset;
+                    }
+
+                    if((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
+                        if(hasSource && !hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_HASSOURCE;
+                            if(lastSource != prgDisassembly[iOp].bstrDocumentUrl)
+                            {
+                                lastSource = prgDisassembly[iOp].bstrDocumentUrl;
+                                prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_DOCUMENTCHANGE;
+                            }
+                        }
+                        AD7MemoryAddress addr = _context as AD7MemoryAddress;
+                        if(instruction.Addr == addr.Address)
+                        {
+                            prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_INSTRUCTION_ACTIVE;
+                        }
                     }
                 }
 
