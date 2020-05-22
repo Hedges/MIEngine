@@ -162,23 +162,12 @@ namespace Microsoft.MIDebugEngine
 
         private void FilterUnknownFrames(System.Collections.Generic.List<ThreadContext> stackFrames)
         {
-            bool lastWasQuestion = false;
             for (int i = 0; i < stackFrames.Count;)
             {
-                // replace sequences of "??" with one UnknownCode frame
+                // replace sequences of "??" with address description
                 if (stackFrames[i].Function == null || stackFrames[i].Function.Equals("??", StringComparison.Ordinal))
                 {
-                    if (lastWasQuestion)
-                    {
-                        stackFrames.RemoveAt(i);
-                        continue;
-                    }
-                    lastWasQuestion = true;
-                    stackFrames[i] = new ThreadContext(stackFrames[i].pc, stackFrames[i].TextPosition, ResourceStrings.UnknownCode, stackFrames[i].Level, null);
-                }
-                else
-                {
-                    lastWasQuestion = false;
+                    stackFrames[i] = new ThreadContext(stackFrames[i].pc, stackFrames[i].TextPosition, EngineUtils.GetAddressDescription(_engine.DebuggedProcess, stackFrames[i].pc.Value), stackFrames[i].Level, null);
                 }
                 i++;
             }
