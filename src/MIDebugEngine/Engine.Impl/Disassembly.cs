@@ -117,6 +117,7 @@ namespace Microsoft.MIDebugEngine
     }
     internal class Disassembly
     {
+        static private bool s_mixed = false;
         private const int cacheSize = 10;   // number of cached blocks to keep
         private SortedList<ulong, DisassemblyBlock> _disassemlyCache;
         private DebuggedProcess _process;
@@ -229,8 +230,10 @@ namespace Microsoft.MIDebugEngine
         /// <param name="address">Beginning address of an instruction to use as a starting point for disassembly.</param>
         /// <param name="nInstructions">Number of instructions to disassemble.</param>
         /// <returns></returns>
-        public async Task<ICollection<DisasmInstruction>> FetchInstructions(ulong address, int nInstructions)
+        public async Task<ICollection<DisasmInstruction>> FetchInstructions(ulong address, int nInstructions, bool mixed = false)
         {
+            s_mixed = mixed;
+
             ICollection<DisasmInstruction> ret = null;
 
             lock (_disassemlyCache)
@@ -307,25 +310,39 @@ namespace Microsoft.MIDebugEngine
         // this is inefficient so we try and grab everything in one gulp
         internal static async Task<DisasmInstruction[]> Disassemble(DebuggedProcess process, ulong startAddr, ulong endAddr)
         {
-            string cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
-            Results results = await process.CmdAsync(cmd, ResultClass.None);
-            if (results.ResultClass == ResultClass.done)
-            {
-                try
-                {
-                    IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
-                    return disasm.ToArray();
-                }
-                catch (Exception e)
-                {
-                }
+            string cmd;
+            Results results;
 
-                try
+            if (s_mixed)
+            {
+                cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
+                results = await process.CmdAsync(cmd, ResultClass.None);
+                if (results.ResultClass == ResultClass.done)
                 {
-                    return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
-                }
-                catch (Exception e)
-                {
+                    try
+                    {
+                        IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
+                        return disasm.ToArray();
+                    }
+                    catch (Exception e)
+                    {
+                    }
+                    finally
+                    {
+                    }
+
+                    try
+                    {
+                        return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
+                    }
+                    catch (Exception e)
+                    {
+                    }
+                    finally
+                    {
+                    }
+
+                    return null;
                 }
             }
 
