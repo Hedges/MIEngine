@@ -11,6 +11,7 @@ namespace Microsoft.MIDebugEngine
 {
     internal class AD7DisassemblyStream : IDebugDisassemblyStream2
     {
+        static private bool s_mixed = false;
         private AD7Engine _engine;
         private ulong _addr;
         private enum_DISASSEMBLY_STREAM_SCOPE _scope;
@@ -103,12 +104,14 @@ namespace Microsoft.MIDebugEngine
 
         public int Read(uint dwInstructions, enum_DISASSEMBLY_STREAM_FIELDS dwFields, out uint pdwInstructionsRead, DisassemblyData[] prgDisassembly)
         {
+            s_mixed = ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != 0);
+
             uint iOp = 0;
 
             IEnumerable<DisasmInstruction> instructions = null;
             _engine.DebuggedProcess.WorkerThread.RunOperation(async () =>
             {
-                instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)dwInstructions, ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != 0));
+                instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)dwInstructions, s_mixed);
             });
             if(instructions == null || (instructions.First().Addr - _addr > dwInstructions))
             {
@@ -253,7 +256,7 @@ namespace Microsoft.MIDebugEngine
             ICollection<DisasmInstruction> instructions = null;
             _engine.DebuggedProcess.WorkerThread.RunOperation(async () =>
             {
-                instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)iInstructions+1);
+                instructions = await _engine.DebuggedProcess.Disassembly.FetchInstructions(_addr, (int)iInstructions+1, s_mixed);
             });
             if (instructions == null)
             {
