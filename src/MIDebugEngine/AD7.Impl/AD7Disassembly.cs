@@ -148,7 +148,7 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    if (hasSource/* && !hasSymbol*/)
+                    if (hasSource && !hasSymbol)
                     {
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
                         prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
@@ -188,7 +188,6 @@ namespace Microsoft.MIDebugEngine
 
                 if (instruction.Addr != 0)
                 {
-
                     if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS) != 0)
                     {
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS;
