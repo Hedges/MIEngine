@@ -322,6 +322,7 @@ namespace Microsoft.MIDebugEngine
                     try
                     {
                         IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
+                        //disasm = disasm.OrderBy(d => d.Addr);
                         return disasm.ToArray();
                     }
                     catch (Exception e)
@@ -419,20 +420,20 @@ namespace Microsoft.MIDebugEngine
                         yield return disassemblyData;
                     }
                 }
-                else
-                {
-                    DisasmInstruction disassemblyData = new DisasmInstruction();
-                    disassemblyData.Addr = 0;
-                    disassemblyData.AddressString = "";
-                    disassemblyData.Symbol = "";
-                    disassemblyData.Offset = 0;
-                    disassemblyData.Opcode = "";
-                    disassemblyData.CodeBytes = "";
-                    disassemblyData.Line = line;
-                    disassemblyData.File = file;
-                    disassemblyData.OffsetInLine = 0;
-                    yield return disassemblyData;
-                }
+                //else
+                //{
+                //    DisasmInstruction disassemblyData = new DisasmInstruction();
+                //    disassemblyData.Addr = 0;
+                //    disassemblyData.AddressString = "";
+                //    disassemblyData.Symbol = "";
+                //    disassemblyData.Offset = 0;
+                //    disassemblyData.Opcode = "";
+                //    disassemblyData.CodeBytes = "";
+                //    disassemblyData.Line = line;
+                //    disassemblyData.File = file;
+                //    disassemblyData.OffsetInLine = 0;
+                //    yield return disassemblyData;
+                //}
             }
         }
     }
