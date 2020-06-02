@@ -137,9 +137,9 @@ namespace Microsoft.MIDebugEngine
                     break;
                 }
 
-                bool hasSource = !string.IsNullOrWhiteSpace(instruction.File);
-
                 bool hasSymbol = (instruction.Addr != 0) && ((instruction.Offset == 0) || (instruction.Symbol != lastSymbol));
+
+                bool hasSource = !string.IsNullOrWhiteSpace(instruction.File) && !hasSymbol;
 
                 if (instruction.Addr != 0)
                 {
@@ -148,7 +148,7 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    if (hasSource && !hasSymbol)
+                    if (hasSource)
                     {
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
                         prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
@@ -157,7 +157,7 @@ namespace Microsoft.MIDebugEngine
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    if (hasSource && (instruction.OffsetInLine == 0) && !hasSymbol)
+                    if (hasSource && (instruction.OffsetInLine == 0))
                     {
                         prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION;
                         prgDisassembly[iOp].posBeg.dwLine = instruction.Line - 1;
@@ -170,7 +170,7 @@ namespace Microsoft.MIDebugEngine
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
                     prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS;
-                    if (hasSource && !hasSymbol)
+                    if (hasSource)
                     {
                         prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_HASSOURCE;
                         if (lastSource != prgDisassembly[iOp].bstrDocumentUrl)
