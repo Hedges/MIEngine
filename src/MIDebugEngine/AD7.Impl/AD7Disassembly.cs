@@ -146,41 +146,13 @@ namespace Microsoft.MIDebugEngine
                     _addr = instruction.Addr;
                 }
 
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS) != 0)
+                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
                 {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS;
-                    prgDisassembly[iOp].bstrAddress = instruction.AddressString;
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES) != 0)
-                {
-                    if (!string.IsNullOrWhiteSpace(instruction.CodeBytes))
+                    if (hasSource/* && !hasSymbol*/)
                     {
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES;
-                        prgDisassembly[iOp].bstrCodeBytes = instruction.CodeBytes;
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
+                        prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
                     }
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE) != 0)
-                {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE;
-                    prgDisassembly[iOp].bstrOpcode = instruction.Opcode;
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL) != 0)
-                {
-                    if (hasSymbol)
-                    {
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL;
-                        lastSymbol = instruction.Symbol ?? "";
-                        prgDisassembly[iOp].bstrSymbol = lastSymbol;
-                    }
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID) != 0)
-                {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID;
-                    prgDisassembly[iOp].uCodeLocationId = instruction.Addr;
                 }
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
@@ -193,21 +165,6 @@ namespace Microsoft.MIDebugEngine
                         prgDisassembly[iOp].posEnd.dwLine = instruction.Line - 1;
                         prgDisassembly[iOp].posEnd.dwColumn = 0;
                     }
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
-                {
-                    if (hasSource && !hasSymbol)
-                    {
-                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL;
-                        prgDisassembly[iOp].bstrDocumentUrl = "file://" + instruction.File;
-                    }
-                }
-
-                if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
-                {
-                    prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET;
-                    prgDisassembly[iOp].dwByteOffset = hasSource ? instruction.OffsetInLine : instruction.Offset;
                 }
 
                 if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_FLAGS) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
@@ -226,6 +183,53 @@ namespace Microsoft.MIDebugEngine
                     if (instruction.Addr == addr.Address)
                     {
                         prgDisassembly[iOp].dwFlags |= enum_DISASSEMBLY_FLAGS.DF_INSTRUCTION_ACTIVE;
+                    }
+                }
+
+                if (instruction.Addr != 0)
+                {
+
+                    if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS) != 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_ADDRESS;
+                        prgDisassembly[iOp].bstrAddress = instruction.AddressString;
+                    }
+
+                    if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES) != 0)
+                    {
+                        if (!string.IsNullOrWhiteSpace(instruction.CodeBytes))
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODEBYTES;
+                            prgDisassembly[iOp].bstrCodeBytes = instruction.CodeBytes;
+                        }
+                    }
+
+                    if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE) != 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_OPCODE;
+                        prgDisassembly[iOp].bstrOpcode = instruction.Opcode;
+                    }
+
+                    if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL) != 0)
+                    {
+                        if (hasSymbol)
+                        {
+                            prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_SYMBOL;
+                            lastSymbol = instruction.Symbol ?? "";
+                            prgDisassembly[iOp].bstrSymbol = lastSymbol;
+                        }
+                    }
+
+                    if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID) != 0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_CODELOCATIONID;
+                        prgDisassembly[iOp].uCodeLocationId = instruction.Addr;
+                    }
+
+                    if ((dwFields & enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET) != (enum_DISASSEMBLY_STREAM_FIELDS)0)
+                    {
+                        prgDisassembly[iOp].dwFields |= enum_DISASSEMBLY_STREAM_FIELDS.DSF_BYTEOFFSET;
+                        prgDisassembly[iOp].dwByteOffset = hasSource ? instruction.OffsetInLine : instruction.Offset;
                     }
                 }
 
