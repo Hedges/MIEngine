@@ -322,7 +322,6 @@ namespace Microsoft.MIDebugEngine
                     try
                     {
                         IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
-                        //disasm = disasm.OrderBy(d => d.Addr);
                         return disasm.ToArray();
                     }
                     catch (Exception e)
