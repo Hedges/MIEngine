@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using Microsoft.DebugEngineHost;
 using Microsoft.DebugEngineHost.VSCode;
 using Microsoft.VisualStudio.Debugger.Interop;
+using Microsoft.VisualStudio.Debugger.Interop.DAP;
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol;
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Messages;
 using Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.Utilities;
@@ -33,6 +34,7 @@ namespace OpenDebugAD7
 
         private IDebugProcess2 m_process;
         private string m_processName;
+        private int m_processId = Constants.InvalidProcessId;
         private IDebugEngineLaunch2 m_engineLaunch;
         private IDebugEngine2 m_engine;
         private EngineConfiguration m_engineConfiguration;
@@ -53,6 +55,7 @@ namespace OpenDebugAD7
         private bool m_isAttach;
         private bool m_isCoreDump;
         private bool m_isStopped = false;
+        private bool m_isStepping = false;
 
         private readonly TaskCompletionSource<object> m_configurationDoneTCS = new TaskCompletionSource<object>();
 
@@ -236,6 +239,31 @@ namespace OpenDebugAD7
             return null;
         }
 
+        private IList<Tracepoint> GetTracepoints(IDebugBreakpointEvent2 debugEvent)
+        {
+            IList<Tracepoint> tracepoints = new List<Tracepoint>();
+
+            if (debugEvent != null)
+            {
+                debugEvent.EnumBreakpoints(out IEnumDebugBoundBreakpoints2 pBoundBreakpoints);
+                IDebugBoundBreakpoint2[] boundBp = new IDebugBoundBreakpoint2[1];
+
+                uint numReturned = 0;
+                while (pBoundBreakpoints.Next(1, boundBp, ref numReturned) == HRConstants.S_OK && numReturned == 1)
+                {
+                    if (boundBp[0].GetPendingBreakpoint(out IDebugPendingBreakpoint2 ppPendingBreakpoint) == HRConstants.S_OK &&
+                        ppPendingBreakpoint.GetBreakpointRequest(out IDebugBreakpointRequest2 ppBPRequest) == HRConstants.S_OK &&
+                        ppBPRequest is AD7BreakPointRequest ad7BreakpointRequest &&
+                        ad7BreakpointRequest.HasTracepoint)
+                    {
+                        tracepoints.Add(ad7BreakpointRequest.Tracepoint);
+                    }
+                }
+            }
+
+            return tracepoints;
+        }
+
         #endregion
 
         #region AD7EventHandlers helper methods
@@ -244,6 +272,7 @@ namespace OpenDebugAD7
         {
             if (!m_isCoreDump)
             {
+                m_isStepping = false;
                 m_isStopped = false;
                 m_variableManager.Reset();
                 m_frameHandles.Reset();
@@ -498,7 +527,6 @@ namespace OpenDebugAD7
             // If we are already running ignore additional step requests
             if (m_isStopped)
             {
-
                 IDebugThread2 thread = null;
                 lock (m_threads)
                 {
@@ -510,6 +538,7 @@ namespace OpenDebugAD7
 
                 BeforeContinue();
                 ErrorBuilder builder = new ErrorBuilder(() => errorMessage);
+                m_isStepping = true;
                 try
                 {
                     builder.CheckHR(m_program.Step(thread, stepKind, stepUnit));
@@ -588,7 +617,10 @@ namespace OpenDebugAD7
                 SupportsSetVariable = true,
                 SupportsFunctionBreakpoints = m_engineConfiguration.FunctionBP,
                 SupportsConditionalBreakpoints = m_engineConfiguration.ConditionalBP,
-                ExceptionBreakpointFilters = m_engineConfiguration.ExceptionSettings.ExceptionBreakpointFilters.Select(item => new ExceptionBreakpointsFilter() { Default = item.@default, Filter = item.filter, Label = item.label }).ToList()
+                ExceptionBreakpointFilters = m_engineConfiguration.ExceptionSettings.ExceptionBreakpointFilters.Select(item => new ExceptionBreakpointsFilter() { Default = item.@default, Filter = item.filter, Label = item.label }).ToList(),
+                SupportsClipboardContext = m_engineConfiguration.ClipboardContext,
+                SupportsLogPoints = true,
+                SupportsReadMemoryRequest = true
             };
 
             responder.SetResponse(initializeResponse);
@@ -601,7 +633,7 @@ namespace OpenDebugAD7
             int hr;
             DateTime launchStartTime = DateTime.Now;
 
-            string mimode = responder.Arguments.ConfigurationProperties.GetValueAsString("miMode");
+            string mimode = responder.Arguments.ConfigurationProperties.GetValueAsString("MIMode");
             string program = responder.Arguments.ConfigurationProperties.GetValueAsString("program")?.Trim();
             if (string.IsNullOrEmpty(program))
             {
@@ -690,6 +722,7 @@ namespace OpenDebugAD7
 
                 m_sessionConfig.StopAtEntrypoint = stopAtEntrypoint;
 
+                m_processId = Constants.InvalidProcessId;
                 m_processName = program;
 
                 enum_LAUNCH_FLAGS flags = enum_LAUNCH_FLAGS.LAUNCH_DEBUG;
@@ -814,7 +847,7 @@ namespace OpenDebugAD7
             bool isLocal = string.IsNullOrEmpty(miDebuggerServerAddress) && !isPipeTransport;
             bool visualizerFileUsed = false;
             int sourceFileMappings = 0;
-            string mimode = responder.Arguments.ConfigurationProperties.GetValueAsString("miMode");
+            string mimode = responder.Arguments.ConfigurationProperties.GetValueAsString("MIMode");
 
             if (isLocal)
             {
@@ -930,6 +963,10 @@ namespace OpenDebugAD7
                     m_isAttach = true;
                 }
 
+                if (int.TryParse(processId, NumberStyles.None, CultureInfo.InvariantCulture, out m_processId))
+                {
+                    m_processId = Constants.InvalidProcessId;
+                }
                 m_processName = program ?? string.Empty;
 
                 // attach
@@ -1335,7 +1372,8 @@ namespace OpenDebugAD7
                                     Dictionary<string, Variable> variablesDictionary = new Dictionary<string, Variable>();
                                     for (uint c = 0; c < count; c++)
                                     {
-                                        var variable = m_variableManager.CreateVariable(ref childProperties[c], variableEvaluationData.propertyInfoFlags);
+                                        string memoryReference = AD7Utils.GetMemoryReferenceFromIDebugProperty(childProperties[c].pProperty);
+                                        var variable = m_variableManager.CreateVariable(ref childProperties[c], variableEvaluationData.propertyInfoFlags, memoryReference);
                                         int uniqueCounter = 2;
                                         string variableName = variable.Name;
                                         string variableNameFormat = "{0} #{1}";
@@ -1352,8 +1390,9 @@ namespace OpenDebugAD7
                                 }
                                 else
                                 {
+                                    string memoryReference = AD7Utils.GetMemoryReferenceFromIDebugProperty(childProperties[0].pProperty);
                                     // Shortcut when no duplicate can exist
-                                    response.Variables.Add(m_variableManager.CreateVariable(ref childProperties[0], variableEvaluationData.propertyInfoFlags));
+                                    response.Variables.Add(m_variableManager.CreateVariable(ref childProperties[0], variableEvaluationData.propertyInfoFlags, memoryReference));
                                 }
                             }
                         }
@@ -1590,6 +1629,52 @@ namespace OpenDebugAD7
                     var resBreakpoints = new List<Breakpoint>();
                     foreach (var bp in breakpoints)
                     {
+                        if (dict.ContainsKey(bp.Line))
+                        {
+                            // already created
+                            IDebugBreakpointRequest2 breakpointRequest;
+                            if (dict[bp.Line].GetBreakpointRequest(out breakpointRequest) == 0 && 
+                                breakpointRequest is AD7BreakPointRequest ad7BPRequest)
+                            {
+                                // Check to see if this breakpoint has a condition that has changed.
+                                if (!StringComparer.Ordinal.Equals(ad7BPRequest.Condition, bp.Condition))
+                                {
+                                    // Condition has been modified. Delete breakpoint so it will be recreated with the updated condition.
+                                    var toRemove = dict[bp.Line];
+                                    toRemove.Delete();
+                                    dict.Remove(bp.Line);
+                                }
+                                // Check to see if tracepoint changed
+                                else if (!StringComparer.Ordinal.Equals(ad7BPRequest.LogMessage, bp.LogMessage))
+                                {
+                                    ad7BPRequest.ClearTracepoint();
+                                    var toRemove = dict[bp.Line];
+                                    toRemove.Delete();
+                                    dict.Remove(bp.Line);
+                                }
+                                else
+                                {
+                                    if (ad7BPRequest.BindResult != null)
+                                    {
+                                        // use the breakpoint created from IDebugBreakpointErrorEvent2 or IDebugBreakpointBoundEvent2
+                                        resBreakpoints.Add(ad7BPRequest.BindResult);
+                                    }
+                                    else
+                                    {
+                                        resBreakpoints.Add(new Breakpoint()
+                                        {
+                                            Id = (int)ad7BPRequest.Id,
+                                            Verified = true,
+                                            Line = bp.Line
+                                        });
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+
+
+                        // Create a new breakpoint
                         if (!dict.ContainsKey(bp.Line))
                         {
                             IDebugPendingBreakpoint2 pendingBp;
@@ -1597,16 +1682,37 @@ namespace OpenDebugAD7
 
                             try
                             {
-                                eb.CheckHR(m_engine.CreatePendingBreakpoint(pBPRequest, out pendingBp));
-                                eb.CheckHR(pendingBp.Bind());
-
-                                dict[bp.Line] = pendingBp;
-                                resBreakpoints.Add(new Breakpoint()
+                                bool verified = true;
+                                if (!string.IsNullOrEmpty(bp.LogMessage))
                                 {
-                                    Id = (int)pBPRequest.Id,
-                                    Verified = true,
-                                    Line = bp.Line
-                                });
+                                    // Make sure tracepoint is valid.
+                                    verified = pBPRequest.SetLogMessage(bp.LogMessage);
+                                }
+
+                                if (verified)
+                                {
+                                    eb.CheckHR(m_engine.CreatePendingBreakpoint(pBPRequest, out pendingBp));
+                                    eb.CheckHR(pendingBp.Bind());
+
+                                    dict[bp.Line] = pendingBp;
+
+                                    resBreakpoints.Add(new Breakpoint()
+                                    {
+                                        Id = (int)pBPRequest.Id,
+                                        Verified = verified,
+                                        Line = bp.Line
+                                    });
+                                }
+                                else
+                                {
+                                    resBreakpoints.Add(new Breakpoint()
+                                    {
+                                        Id = (int)pBPRequest.Id,
+                                        Verified = verified,
+                                        Line = bp.Line,
+                                        Message = string.Format(CultureInfo.CurrentCulture, AD7Resources.Error_UnableToParseLogMessage)
+                                    });
+                                }
                             }
                             catch (Exception e)
                             {
@@ -1623,28 +1729,6 @@ namespace OpenDebugAD7
                                     Line = bp.Line,
                                     Message = eb.GetMessageForException(e)
                                 });
-                            }
-                        }
-                        else
-                        {   // already created
-                            IDebugBreakpointRequest2 breakpointRequest;
-                            if (dict[bp.Line].GetBreakpointRequest(out breakpointRequest) == 0)
-                            {
-                                var ad7BPRequest = (AD7BreakPointRequest)breakpointRequest;
-                                if (ad7BPRequest.BindResult != null)
-                                {
-                                    // use the breakpoint created from IDebugBreakpointErrorEvent2 or IDebugBreakpointBoundEvent2
-                                    resBreakpoints.Add(ad7BPRequest.BindResult);
-                                }
-                                else
-                                {
-                                    resBreakpoints.Add(new Breakpoint()
-                                    {
-                                        Id = (int)ad7BPRequest.Id,
-                                        Verified = true,
-                                        Line = bp.Line
-                                    });
-                                }
                             }
                         }
                     }
@@ -1742,6 +1826,41 @@ namespace OpenDebugAD7
 
             foreach (FunctionBreakpoint b in breakpoints)
             {
+                if (m_functionBreakpoints.ContainsKey(b.Name))
+                {   // already created
+                    IDebugBreakpointRequest2 breakpointRequest;
+                    if (m_functionBreakpoints[b.Name].GetBreakpointRequest(out breakpointRequest) == 0 &&
+                                breakpointRequest is AD7BreakPointRequest ad7BPRequest)
+                    {
+                        // Check to see if this breakpoint has a condition that has changed.
+                        if (!StringComparer.Ordinal.Equals(ad7BPRequest.Condition, b.Condition))
+                        {
+                            // Condition has been modified. Delete breakpoint so it will be recreated with the updated condition.
+                            var toRemove = m_functionBreakpoints[b.Name];
+                            toRemove.Delete();
+                            m_functionBreakpoints.Remove(b.Name);
+                        }
+                        else
+                        {
+                            if (ad7BPRequest.BindResult != null)
+                            {
+                                response.Breakpoints.Add(ad7BPRequest.BindResult);
+                            }
+                            else
+                            {
+                                response.Breakpoints.Add(new Breakpoint()
+                                {
+                                    Id = (int)ad7BPRequest.Id,
+                                    Verified = true,
+                                    Line = 0
+                                });
+
+                            }
+                            continue;
+                        }
+                    }
+                }
+
                 // bind the new function names
                 if (!m_functionBreakpoints.ContainsKey(b.Name))
                 {
@@ -1773,28 +1892,6 @@ namespace OpenDebugAD7
                             Verified = false,
                             Line = 0
                         }); // couldn't create and/or bind
-                    }
-                }
-                else
-                {   // already created
-                    IDebugBreakpointRequest2 breakpointRequest;
-                    if (m_functionBreakpoints[b.Name].GetBreakpointRequest(out breakpointRequest) == 0)
-                    {
-                        var ad7BPRequest = (AD7BreakPointRequest)breakpointRequest;
-                        if (ad7BPRequest.BindResult != null)
-                        {
-                            response.Breakpoints.Add(ad7BPRequest.BindResult);
-                        }
-                        else
-                        {
-                            response.Breakpoints.Add(new Breakpoint()
-                            {
-                                Id = (int)ad7BPRequest.Id,
-                                Verified = true,
-                                Line = 0
-                            });
-
-                        }
                     }
                 }
             }
@@ -1862,11 +1959,10 @@ namespace OpenDebugAD7
             hr = frame.GetExpressionContext(out expressionContext);
             eb.CheckHR(hr);
 
-            const uint InputRadix = 10;
             IDebugExpression2 expressionObject;
             string error;
             uint errorIndex;
-            hr = expressionContext.ParseText(expression, enum_PARSEFLAGS.PARSE_EXPRESSION, InputRadix, out expressionObject, out error, out errorIndex);
+            hr = expressionContext.ParseText(expression, enum_PARSEFLAGS.PARSE_EXPRESSION, Constants.ParseRadix, out expressionObject, out error, out errorIndex);
             if (!string.IsNullOrEmpty(error))
             {
                 // TODO: Is this how errors should be returned?
@@ -1888,7 +1984,20 @@ namespace OpenDebugAD7
             }
 
             IDebugProperty2 property;
-            hr = expressionObject.EvaluateSync(flags, Constants.EvaluationTimeout, null, out property);
+            if (expressionObject is IDebugExpressionDAP expressionDapObject)
+            {
+                DAPEvalFlags dapEvalFlags = DAPEvalFlags.NONE;
+                if (context == EvaluateArguments.ContextValue.Clipboard)
+                {
+                    dapEvalFlags |= DAPEvalFlags.CLIPBOARD_CONTEXT;
+                }
+                hr = expressionDapObject.EvaluateSync(flags, dapEvalFlags, Constants.EvaluationTimeout, null, out property);
+            }
+            else
+            {
+                hr = expressionObject.EvaluateSync(flags, Constants.EvaluationTimeout, null, out property);
+            }
+
             eb.CheckHR(hr);
             eb.CheckOutput(property);
 
@@ -1910,7 +2019,9 @@ namespace OpenDebugAD7
                 return;
             }
 
-            Variable variable = m_variableManager.CreateVariable(ref propertyInfo[0], propertyInfoFlags);
+            string memoryReference = AD7Utils.GetMemoryReferenceFromIDebugProperty(property);
+
+            Variable variable = m_variableManager.CreateVariable(ref propertyInfo[0], propertyInfoFlags, memoryReference);
 
             if (context != EvaluateArguments.ContextValue.Hover)
             {
@@ -1924,9 +2035,73 @@ namespace OpenDebugAD7
             {
                 Result = variable.Value,
                 Type = variable.Type,
-                VariablesReference = variable.VariablesReference
+                VariablesReference = variable.VariablesReference,
+                MemoryReference = memoryReference
             });
+        }
 
+
+        protected override void HandleReadMemoryRequestAsync(IRequestResponder<ReadMemoryArguments, ReadMemoryResponse> responder)
+        {
+            int hr;
+            ReadMemoryArguments rma = responder.Arguments;
+            ErrorBuilder eb = new ErrorBuilder(() => AD7Resources.Error_Scenario_ReadMemory);
+            try
+            {
+                if (string.IsNullOrEmpty(rma.MemoryReference))
+                {
+                    throw new ArgumentException("ReadMemoryArguments.MemoryReference is null or empty.");
+                }
+
+                ulong address;
+                if (rma.MemoryReference.StartsWith("0x", StringComparison.Ordinal))
+                {
+                    address = Convert.ToUInt64(rma.MemoryReference.Substring(2), 16);
+                }
+                else
+                {
+                    address = Convert.ToUInt64(rma.MemoryReference, 10);
+                }
+
+                if (rma.Offset.HasValue && rma.Offset.Value != 0)
+                {
+                    if (rma.Offset < 0)
+                    {
+                        address += (ulong)rma.Offset.Value;
+                    }
+                    else
+                    {
+                        address -= (ulong)-rma.Offset.Value;
+                    }
+                }
+
+                hr = ((IDebugMemoryBytesDAP)m_engine).CreateMemoryContext(address, out IDebugMemoryContext2 memoryContext);
+                eb.CheckHR(hr);
+
+                byte[] data = new byte[rma.Count];
+                uint unreadableBytes = 0;
+                uint bytesRead = 0;
+
+                if (rma.Count != 0)
+                {
+                    hr = m_program.GetMemoryBytes(out IDebugMemoryBytes2 debugMemoryBytes);
+                    eb.CheckHR(hr);
+
+                    hr = debugMemoryBytes.ReadAt(memoryContext, (uint)rma.Count, data, out bytesRead, ref unreadableBytes);
+                    eb.CheckHR(hr);
+                }
+
+                responder.SetResponse(new ReadMemoryResponse()
+                {
+                    Address = string.Format(CultureInfo.InvariantCulture, "0x{0:X}", address),
+                    Data = Convert.ToBase64String(data, 0, (int)bytesRead),
+                    UnreadableBytes = (int?)unreadableBytes
+                });
+            }
+            catch (Exception e)
+            {
+                responder.SetError(new ProtocolException(e.Message));
+            }
         }
 
         #endregion
@@ -1975,6 +2150,7 @@ namespace OpenDebugAD7
             RegisterSyncEventHandler(typeof(IDebugBreakpointErrorEvent2), HandleIDebugBreakpointErrorEvent2);
             RegisterSyncEventHandler(typeof(IDebugOutputStringEvent2), HandleIDebugOutputStringEvent2);
             RegisterSyncEventHandler(typeof(IDebugMessageEvent2), HandleIDebugMessageEvent2);
+            RegisterSyncEventHandler(typeof(IDebugProcessInfoUpdatedEvent158), HandleIDebugProcessInfoUpdatedEvent158);
 
             // Async Handlers
             RegisterAsyncEventHandler(typeof(IDebugProgramCreateEvent2), HandleIDebugProgramCreateEvent2);
@@ -2049,7 +2225,45 @@ namespace OpenDebugAD7
 
         public void HandleIDebugBreakpointEvent2(IDebugEngine2 pEngine, IDebugProcess2 pProcess, IDebugProgram2 pProgram, IDebugThread2 pThread, IDebugEvent2 pEvent)
         {
-            FireStoppedEvent(pThread, StoppedEvent.ReasonValue.Breakpoint);
+            IList<Tracepoint> tracepoints = GetTracepoints(pEvent as IDebugBreakpointEvent2);
+            if (tracepoints.Any())
+            {
+                ThreadPool.QueueUserWorkItem((o) =>
+                {
+                    foreach (var tp in tracepoints)
+                    {
+                        int hr = tp.GetLogMessage(pThread, Constants.ParseRadix, m_processName, m_processId, out string logMessage);
+                        if (hr != HRConstants.S_OK)
+                        {
+                            DebuggerTelemetry.ReportError(DebuggerTelemetry.TelemetryTracepointEventName, logMessage);
+                            m_logger.WriteLine(LoggingCategory.DebuggerError, logMessage);
+                        }
+                        else
+                        {
+                            m_logger.WriteLine(LoggingCategory.DebuggerStatus, logMessage);
+                        }
+                    }
+
+                    // Need to check to see if the previous continuation of the debuggee was a step. 
+                    // If so, we need to send a stopping event to the UI to signal the step completed successfully. 
+                    if (!m_isStepping)
+                    {
+                        ThreadPool.QueueUserWorkItem((obj) =>
+                        {
+                            BeforeContinue();
+                            m_program.Continue(pThread);
+                        });
+                    }
+                    else
+                    {
+                        FireStoppedEvent(pThread, StoppedEvent.ReasonValue.Breakpoint);
+                    }
+                });
+            }
+            else
+            {
+                FireStoppedEvent(pThread, StoppedEvent.ReasonValue.Breakpoint);
+            }
         }
 
         public void HandleIDebugBreakEvent2(IDebugEngine2 pEngine, IDebugProcess2 pProcess, IDebugProgram2 pProgram, IDebugThread2 pThread, IDebugEvent2 pEvent)
@@ -2331,6 +2545,42 @@ namespace OpenDebugAD7
 
                     m_logger.Write(category, text);
                 }
+            }
+        }
+
+        public void HandleIDebugProcessInfoUpdatedEvent158(IDebugEngine2 pEngine, IDebugProcess2 pProcess, IDebugProgram2 pProgram, IDebugThread2 pThread, IDebugEvent2 pEvent)
+        {
+            IDebugProcessInfoUpdatedEvent158 debugProcessInfoUpdated = pEvent as IDebugProcessInfoUpdatedEvent158;
+
+            if (debugProcessInfoUpdated != null && 
+                debugProcessInfoUpdated.GetUpdatedProcessInfo(out string name, out uint systemProcessId) == HRConstants.S_OK)
+            {
+                // Update Process Name and Id
+                m_processName = name;
+                m_processId = (int)systemProcessId;
+
+                // Send ProcessEvent to Client
+                ProcessEvent processEvent = new ProcessEvent();
+                processEvent.Name = m_processName;
+                processEvent.SystemProcessId = m_processId;
+
+                if (m_isAttach)
+                {
+                    processEvent.StartMethod = ProcessEvent.StartMethodValue.Attach;
+                }
+                else
+                {
+                    processEvent.StartMethod = ProcessEvent.StartMethodValue.Launch;
+                }
+
+                if (m_engine is IDebugProgramDAP debugProgram)
+                {
+                    if (debugProgram.GetPointerSize(out int pointerSize) == HRConstants.S_OK)
+                    {
+                        processEvent.PointerSize = pointerSize;
+                    }
+                }
+                Protocol.SendEvent(processEvent);
             }
         }
 
