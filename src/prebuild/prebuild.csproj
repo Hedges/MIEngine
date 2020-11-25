@@ -15,17 +15,14 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Desktop.Debug|AnyCPU'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Desktop.Release|AnyCPU'" />
   <ItemGroup>
+    <None Include="packages.config" />
     <GenerateAssembly Include="$(ILDir)*.il">
       <Visible>false</Visible>
     </GenerateAssembly>
   </ItemGroup>
   <Target Name="GenerateAssemblies" Condition="'@(GenerateAssembly)' != ''" Inputs="@(GenerateAssembly)" Outputs="@(GenerateAssembly->'$(GeneratedAssembliesDir)%(FileName).dll')" AfterTargets="Build">
-    <Exec Condition="'$(IsMonoRuntime)' == 'true'" ConsoleToMsBuild="true" Command="dirname `which ilasm`">
-      <Output TaskParameter="ConsoleOutput" PropertyName="IlAsmPath" />
-    </Exec>
     <PropertyGroup>
-      <IlAsmCommand Condition="'$(IsMonoRuntime)' == 'false'">"$(windir)\Microsoft.NET\Framework\v4.0.30319\ilasm.exe"</IlAsmCommand>
-      <IlAsmCommand Condition="'$(IsMonoRuntime)' == 'true'">$(IlAsmPath)/ilasm</IlAsmCommand>
+      <IlAsmCommand>"$(windir)\Microsoft.NET\Framework\v4.0.30319\ilasm.exe"</IlAsmCommand>
       <IlAsmFlags>$(IlAsmFlags) /DLL /quiet</IlAsmFlags>
     </PropertyGroup>
     <MakeDir Condition="!Exists('$(GeneratedAssembliesDir)')" Directories="$(GeneratedAssembliesDir)" />
