@@ -4,6 +4,7 @@
 using System;
 using Microsoft.VisualStudio.Debugger.Interop;
 using System.Diagnostics;
+using System.Text;
 
 namespace Microsoft.MIDebugEngine
 {
