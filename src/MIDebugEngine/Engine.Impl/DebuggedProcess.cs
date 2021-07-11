@@ -1988,6 +1988,17 @@ namespace Microsoft.MIDebugEngine
             return toRead;
         }
 
+        internal async Task<uint> WriteProcessMemory(ulong address, uint count, byte[] bytes)
+        {
+            string cmd = "-data-write-memory-bytes " + EngineUtils.AsAddr(address, Is64BitArch) + " " + BitConverter.ToString(bytes).Replace("-", "");
+            Results results = await CmdAsync(cmd, ResultClass.None);
+            if (results.ResultClass == ResultClass.error)
+            {
+                return 0;
+            }
+            return count;
+        }
+
         internal async Task<Tuple<ulong, ulong>> FindValidMemoryRange(ulong address, uint count, int offset)
         {
             var ret = new Tuple<ulong, ulong>(0, 0);    // init to an empty range
