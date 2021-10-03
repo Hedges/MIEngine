@@ -1108,7 +1108,14 @@ namespace Microsoft.MIDebugEngine
 
         public int WriteAt(IDebugMemoryContext2 pStartContext, uint dwCount, byte[] rgbMemory)
         {
-            throw new NotImplementedException();
+            AD7MemoryAddress addr = (AD7MemoryAddress)pStartContext;
+            uint bytesWritten = 0;
+            int hr = Constants.S_OK;
+            DebuggedProcess.WorkerThread.RunOperation(async () =>
+            {
+                bytesWritten = await DebuggedProcess.WriteProcessMemory(addr.Address, dwCount, rgbMemory);
+            });
+            return hr;
         }
 
         #endregion
