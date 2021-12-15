@@ -146,6 +146,16 @@ namespace Microsoft.MIDebugEngine
                 }
             };
 
+            LibraryUnloadEvent += delegate (object o, EventArgs args)
+            {
+                ResultEventArgs results = args as MICore.Debugger.ResultEventArgs;
+                string id = results.Results.TryFindString("host-name");
+                if (!string.IsNullOrEmpty(id))
+                {
+                    RemoveModule(id);
+                }
+            };
+
             if (_launchOptions is LocalLaunchOptions)
             {
                 LocalLaunchOptions localLaunchOptions = (LocalLaunchOptions)_launchOptions;
@@ -1566,6 +1576,20 @@ namespace Microsoft.MIDebugEngine
                 _callback.OnSymbolsLoaded(module);
             }
             return module;
+        }
+
+        private void RemoveModule(string id)
+        {
+            var module = FindModule(id);
+            if (module != null)
+            {
+                lock (_moduleList)
+                {
+                    _moduleList.Remove(module);
+                }
+
+                _callback.OnModuleUnload(module);
+            }
         }
 
         // this is called on any thread, so we need to dispatch the command via
