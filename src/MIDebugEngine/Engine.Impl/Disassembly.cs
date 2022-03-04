@@ -357,7 +357,12 @@ namespace Microsoft.MIDebugEngine
                 inst.Addr = items[i].FindAddr("address");
                 inst.AddressString = items[i].FindString("address");
                 inst.Symbol = items[i].TryFindString("func-name");
-                inst.Offset = items[i].Contains("offset") ? items[i].FindUint("offset") : 0;
+                if(inst.Symbol.Equals("??", StringComparison.Ordinal))
+                {
+                    inst.Symbol = "";
+                }
+                ulong offset = items[i].TryFindAddr("offset") ?? 0;
+                inst.Offset = (offset < 0x7fffffff) ? (uint)offset : 0;
                 inst.Opcode = items[i].FindString("inst");
                 inst.CodeBytes = items[i].TryFindString("opcodes");
                 inst.Line = 0;
@@ -380,7 +385,12 @@ namespace Microsoft.MIDebugEngine
                     disassemblyData.Addr = asm_item.FindAddr("address");
                     disassemblyData.AddressString = asm_item.FindString("address");
                     disassemblyData.Symbol = asm_item.TryFindString("func-name");
-                    disassemblyData.Offset = asm_item.Contains("offset") ? asm_item.FindUint("offset") : 0;
+                        if(disassemblyData.Symbol.Equals("??", StringComparison.Ordinal))
+                        {
+                            disassemblyData.Symbol = "";
+                        }
+                        ulong offset = asm_item.TryFindAddr("offset") ?? 0;
+                        disassemblyData.Offset = (offset < 0x7fffffff) ? (uint)offset : 0;
                     disassemblyData.Opcode = asm_item.FindString("inst");
                     disassemblyData.CodeBytes = asm_item.TryFindString("opcodes");
                     disassemblyData.Line = line;
