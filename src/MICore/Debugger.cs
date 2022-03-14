@@ -1268,6 +1268,7 @@ namespace MICore
                 switch (c)
                 {
                     case '~':
+                    case '@':
                         OnDebuggeeOutput(noprefix);         // Console stream
                         break;
                     case '^':
