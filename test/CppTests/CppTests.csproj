@@ -2,14 +2,27 @@
   <Import Project="..\..\build\debuggertesting.settings.targets" />
 
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
 
     <IsPackable>false</IsPackable>
 
     <OutputPath>$(OutputPath)\CppTests</OutputPath>
   </PropertyGroup>
   
+  <!-- 
+    This ItemGroup is to override the packages that being depended on for the PackageReferences above. 
+    The issue is that Microsoft.NET.Test.Sdk ->
+                      Newtonsoft.Json v12.0.2
+    Delete this explicit override when we update 'Microsoft_VisualStudio_Shell_Framework_Version' away from v17.2.32505.113
+  -->
+  <ItemGroup Label="Component Governance Override"> 
+    <PackageReference Include="Newtonsoft.Json" Version="$(Newtonsoft_Json_Version)" />
+  </ItemGroup>
+
   <ItemGroup Label="Package References">
+    <PackageReference Include="Microsoft.VisualStudioEng.MicroBuild.Core" Version="$(Microsoft_VisualStudioEng_MicroBuild_Core_Version)" GeneratePathProperty="true">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(Microsoft_NET_Test_Sdk_Version)" />
     <PackageReference Include="xunit" Version="$(xunit_Version)" />
     <PackageReference Include="xunit.runner.visualstudio" Version="$(xunit_runner_visualstudio_Version)">
@@ -43,6 +56,11 @@
     <DropUnsignedFile Include="$(OutputPath)CppTests.pdb" />
     <DropSignedFile Include="$(OutputPath)DebuggerTesting.dll" />
     <DropUnsignedFile Include="$(OutputPath)DebuggerTesting.pdb" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageNuspec Include="$(MSBuildThisFileDirectory)\CppTests.nuspec" />
+    <NugetPackages Include="Microsoft.VisualStudio.DebuggerTesting.CppTests" />
   </ItemGroup>
 
   <Import Project="..\..\build\DropFiles.targets" />

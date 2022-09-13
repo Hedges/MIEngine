@@ -5,7 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.Serialization;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
 
 namespace MICore.Json.LaunchOptions
@@ -73,6 +75,12 @@ namespace MICore.Json.LaunchOptions
         public string MiDebuggerServerAddress { get; set; }
 
         /// <summary>
+        /// If true, use gdb extended-remote mode to connect to gdbserver.
+        /// </summary>
+        [JsonProperty("useExtendedRemote", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool? UseExtendedRemote { get; set; }
+
+        /// <summary>
         /// Optional source file mappings passed to the debug engine. Example: '{ "/original/source/path":"/current/source/path" }'
         /// </summary>
         [JsonProperty("sourceFileMap", DefaultValueHandling = DefaultValueHandling.Ignore)]
@@ -97,10 +105,22 @@ namespace MICore.Json.LaunchOptions
         public List<SetupCommand> SetupCommands { get; protected set; }
 
         /// <summary>
+        /// One or more commands to execute in order to setup underlying debugger after debugger has been attached. i.e. flashing and resetting the board
+        /// </summary>
+        [JsonProperty("postRemoteConnectCommands", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public List<SetupCommand> PostRemoteConnectCommands { get; protected set; }
+
+        /// <summary>
         /// Explicitly control whether hardware breakpoints are used. If an optional limit is provided, additionally restrict the number of hardware breakpoints for remote targets. Example: "hardwareBreakpoints": { "require": true, "limit": 5 }.
         /// </summary>
         [JsonProperty("hardwareBreakpoints", DefaultValueHandling = DefaultValueHandling.Ignore)]
         public HardwareBreakpointInfo HardwareBreakpointInfo { get; set; }
+
+        /// <summary>
+        /// Controls how breakpoints set externally (usually via raw GDB commands) are handled when hit. "throw" acts as if an exception was thrown by the application and "stop" only pauses the debug session.
+        /// </summary>
+        [JsonProperty("unknownBreakpointHandling", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public UnknownBreakpointHandling? UnknownBreakpointHandling { get; set; }
     }
 
     public partial class AttachOptions : BaseOptions
@@ -131,6 +151,7 @@ namespace MICore.Json.LaunchOptions
             string miDebuggerPath = null,
             string miDebuggerArgs = null,
             string miDebuggerServerAddress = null,
+            bool? useExtendedRemote = null,
             HardwareBreakpointInfo hardwareBreakpointInfo = null,
             Dictionary<string, object> sourceFileMap = null,
             PipeTransport pipeTransport = null,
@@ -146,6 +167,7 @@ namespace MICore.Json.LaunchOptions
             this.MiDebuggerPath = miDebuggerPath;
             this.MiDebuggerArgs = miDebuggerArgs;
             this.MiDebuggerServerAddress = miDebuggerServerAddress;
+            this.UseExtendedRemote = useExtendedRemote;
             this.ProcessId = processId;
             this.HardwareBreakpointInfo = hardwareBreakpointInfo;
             this.SourceFileMap = sourceFileMap;
@@ -249,6 +271,16 @@ namespace MICore.Json.LaunchOptions
         }
 
         #endregion
+    }
+
+    [JsonConverter(typeof(StringEnumConverter))]
+    public enum UnknownBreakpointHandling
+    {
+        [EnumMember(Value = "throw")]
+        Throw,
+
+        [EnumMember(Value = "stop")]
+        Stop
     }
 
     public partial class LaunchOptions : BaseOptions
@@ -360,6 +392,7 @@ namespace MICore.Json.LaunchOptions
         {
             this.Args = new List<string>();
             this.SetupCommands = new List<SetupCommand>();
+            this.PostRemoteConnectCommands = new List<SetupCommand>();
             this.CustomLaunchSetupCommands = new List<SetupCommand>();
             this.Environment = new List<Environment>();
             this.SourceFileMap = new Dictionary<string, object>();
@@ -372,6 +405,7 @@ namespace MICore.Json.LaunchOptions
             string targetArchitecture = null,
             string cwd = null,
             List<SetupCommand> setupCommands = null,
+            List<SetupCommand> postRemoteConnectCommands = null,
             List<SetupCommand> customLaunchSetupCommands = null,
             LaunchCompleteCommand? launchCompleteCommand = null,
             string visualizerFile = null,
@@ -382,6 +416,7 @@ namespace MICore.Json.LaunchOptions
             string miDebuggerPath = null,
             string miDebuggerArgs = null,
             string miDebuggerServerAddress = null,
+            bool? useExtendedRemote = null,
             bool? stopAtEntry = null,
             string debugServerPath = null,
             string debugServerArgs = null,
@@ -402,6 +437,7 @@ namespace MICore.Json.LaunchOptions
             this.TargetArchitecture = targetArchitecture;
             this.Cwd = cwd;
             this.SetupCommands = setupCommands;
+            this.PostRemoteConnectCommands = postRemoteConnectCommands;
             this.CustomLaunchSetupCommands = customLaunchSetupCommands;
             this.LaunchCompleteCommand = launchCompleteCommand;
             this.VisualizerFile = visualizerFile;
@@ -412,6 +448,7 @@ namespace MICore.Json.LaunchOptions
             this.MiDebuggerPath = miDebuggerPath;
             this.MiDebuggerArgs = miDebuggerArgs;
             this.MiDebuggerServerAddress = miDebuggerServerAddress;
+            this.UseExtendedRemote = useExtendedRemote;
             this.StopAtEntry = stopAtEntry;
             this.DebugServerPath = debugServerPath;
             this.DebugServerArgs = debugServerArgs;

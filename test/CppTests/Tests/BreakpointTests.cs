@@ -157,7 +157,54 @@ namespace CppTests.Tests
         [Theory]
         [DependsOnTest(nameof(CompileKitchenSinkForBreakpointTests))]
         [RequiresTestSettings]
-        [UnsupportedDebugger(SupportedDebugger.Gdb_Cygwin | SupportedDebugger.Gdb_MinGW, SupportedArchitecture.x64 | SupportedArchitecture.x86)]
+        [UnsupportedDebugger(SupportedDebugger.VsDbg, SupportedArchitecture.x86 | SupportedArchitecture.x64)]
+        public void LineLogBreakpointsBasic(ITestSettings settings)
+        {
+            this.TestPurpose("Tests basic operation of line breakpoints with a LogPoint");
+            this.WriteSettings(settings);
+
+            IDebuggee debuggee = SinkHelper.Open(this, settings.CompilerSettings, DebuggeeMonikers.KitchenSink.Breakpoint);
+
+            using (IDebuggerRunner runner = CreateDebugAdapterRunner(settings))
+            {
+                this.Comment("Configure launch");
+                runner.Launch(settings.DebuggerSettings, debuggee, "-fCalling");
+
+                // These keep track of all the breakpoints in a source file
+                SourceBreakpoints callingBreakpoints = debuggee.Breakpoints(SinkHelper.Calling, 48);
+
+                this.Comment("Set initial breakpoints");
+                runner.SetBreakpoints(callingBreakpoints);
+
+                this.Comment("Launch and run until first breakpoint");
+                runner.Expects.HitBreakpointEvent(SinkHelper.Calling, 48)
+                              .AfterConfigurationDone();
+
+                string logMessage = "Log Message";
+
+                this.Comment("Set a logpoint while in break mode");
+                callingBreakpoints.Add(52, null, logMessage);
+                runner.SetBreakpoints(callingBreakpoints);
+
+                this.Comment("Continue til end with newly-added logpoint");
+                // ignoringResponseOrder: true here since sometimes the ContinuedResponse occurs after the OutputEvent and
+                // DAR does not look at previous messages unless marked ignoreResponseOrder. 
+                runner.Expects.OutputEvent("^" + logMessage + "\\b", CategoryValue.Console, ignoreResponseOrder: true)
+                              .ExitedEvent()
+                              .TerminatedEvent()
+                              .AfterContinue();
+
+                runner.DisconnectAndVerify();
+            }
+        }
+
+        [Theory]
+        [DependsOnTest(nameof(CompileKitchenSinkForBreakpointTests))]
+        [RequiresTestSettings]
+        // TODO: https://github.com/microsoft/MIEngine/issues/1170
+        // - gdb_gnu
+        // - lldb
+        [UnsupportedDebugger(SupportedDebugger.Lldb | SupportedDebugger.Gdb_Gnu | SupportedDebugger.Gdb_Cygwin | SupportedDebugger.Gdb_MinGW, SupportedArchitecture.x64 | SupportedArchitecture.x86)]
         public void RunModeBreakpoints(ITestSettings settings)
         {
             this.TestPurpose("Tests setting breakpoints while in run mode");
@@ -331,6 +378,114 @@ namespace CppTests.Tests
                     mainFrame.AssertVariables("i", "5");
                 }
 
+                this.Comment("Run to completion");
+                runner.Expects.ExitedEvent()
+                              .TerminatedEvent()
+                              .AfterContinue();
+
+                runner.DisconnectAndVerify();
+            }
+        }
+
+        [Theory]
+        [DependsOnTest(nameof(CompileKitchenSinkForBreakpointTests))]
+        [RequiresTestSettings]
+        // lldb-mi returns the condition without escaping the quotes.
+        // >=breakpoint-modified,bkpt={..., cond="str == "hello, world"", ...}
+        [UnsupportedDebugger(SupportedDebugger.Lldb, SupportedArchitecture.x64 | SupportedArchitecture.x86)]
+        public void ConditionalStringBreakpoints(ITestSettings settings)
+        {
+            this.TestPurpose("Tests that conditional breakpoints on strings work");
+            this.WriteSettings(settings);
+
+            IDebuggee debuggee = SinkHelper.Open(this, settings.CompilerSettings, DebuggeeMonikers.KitchenSink.Breakpoint);
+
+            using (IDebuggerRunner runner = CreateDebugAdapterRunner(settings))
+            {
+                this.Comment("Configure launch");
+                runner.Launch(settings.DebuggerSettings, debuggee, "-fExpression");
+
+                this.Comment("Set a conditional line with string comparison breakpoint");
+                SourceBreakpoints callingBreakpoints = new SourceBreakpoints(debuggee, SinkHelper.Expression);
+                callingBreakpoints.Add(69, "str == \"hello, world\"");
+                runner.SetBreakpoints(callingBreakpoints);
+
+                this.Comment("Run to conditional breakpoint");
+                runner.Expects.HitBreakpointEvent(null, 69)
+                              .AfterConfigurationDone();
+
+                // Skip verifying variable since strings result in "{ ... }"
+
+                this.Comment("Run to completion");
+                runner.Expects.ExitedEvent()
+                              .TerminatedEvent()
+                              .AfterContinue();
+
+                runner.DisconnectAndVerify();
+            }
+        }
+
+        [Theory]
+        [DependsOnTest(nameof(CompileKitchenSinkForBreakpointTests))]
+        [RequiresTestSettings]
+        // lldb-mi does not support -break-watch
+        [UnsupportedDebugger(SupportedDebugger.Lldb, SupportedArchitecture.x64 | SupportedArchitecture.x86)]
+        [UnsupportedDebugger(SupportedDebugger.VsDbg, SupportedArchitecture.x86 | SupportedArchitecture.x64)]
+        public void DataBreakpointTest(ITestSettings settings)
+        {
+            this.TestPurpose("Tests that data breakpoints work");
+            this.WriteSettings(settings);
+
+            IDebuggee debuggee = SinkHelper.Open(this, settings.CompilerSettings, DebuggeeMonikers.KitchenSink.Breakpoint);
+
+            using (IDebuggerRunner runner = CreateDebugAdapterRunner(settings))
+            {
+                runner.Launch(settings.DebuggerSettings, debuggee, "-fCalling");
+
+                SourceBreakpoints callingBreakpoints = debuggee.Breakpoints(SinkHelper.Calling, 15);
+                runner.SetBreakpoints(callingBreakpoints);
+
+                runner.Expects.HitBreakpointEvent(SinkHelper.Calling, 15)
+                            .AfterConfigurationDone();
+
+                using (IThreadInspector inspector = runner.GetThreadInspector())
+                {
+                    IFrameInspector mainFrame = inspector.Stack.First();
+                    mainFrame.GetVariable("total");
+
+                    this.Comment("Get DataBreakpointInfo on 'total'");
+                    var response = runner.DataBreakpointInfo("total");
+                    Assert.NotNull(response?.body);
+                    Assert.Contains("write", response.body.accessTypes); // Validate access type is "write"
+                    Assert.Equal("When 'total' changes (8 bytes)", response.body.description, true, true, true); // Validate description matches DataBreakpointDisplayString
+                    Assert.False(string.IsNullOrEmpty(response.body.dataId));
+                    Assert.EndsWith("total,8", response.body.dataId); // Validate dataId matches format <Address>,<Id>,<Size>
+
+                    this.Comment("SetDataBreakpoint on 'total' Info");
+                    DataBreakpoints dataBreakpoints = new DataBreakpoints();
+                    dataBreakpoints.Add(response.body.dataId);
+                    runner.SetDataBreakpoints(dataBreakpoints);
+                }
+
+                this.Comment("Run to statement after data breakpoint");
+                // Note this is going to be source line 15 for `i++`.
+                runner.Expects.HitBreakpointEvent(SinkHelper.Calling, 15)
+                              .AfterContinue();
+
+                using (IThreadInspector inspector = runner.GetThreadInspector())
+                {
+                    IFrameInspector mainFrame = inspector.Stack.First();
+                    string value = mainFrame.GetVariable("total").Value;
+                    Assert.True(double.TryParse(value, out double result));
+                    Assert.Equal(1.0, result);
+                }
+
+                // Delete data breakpoint
+                this.Comment("Clear data breakpoint");
+                runner.SetDataBreakpoints(new DataBreakpoints());
+
+                // Ensures that disabling the data bp works if it does not hit another
+                // stopping bp event but ends the program.
                 this.Comment("Run to completion");
                 runner.Expects.ExitedEvent()
                               .TerminatedEvent()

@@ -1254,10 +1254,10 @@ namespace MICore
                         {
                             WaitingOperationDescriptor waitingOperation;
                             if (_waitingOperations.TryGetValue(id, out waitingOperation) &&
-                                !waitingOperation.EchoReceived &&
                                 line == waitingOperation.Command)
                             {
                                 // This is just the echo. Ignore.
+                                // Sometimes with lldb we are seeing 2 command echos 
                                 waitingOperation.EchoReceived = true;
                                 return;
                             }

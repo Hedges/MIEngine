@@ -4,20 +4,25 @@
   <PropertyGroup>
     <AssemblyName>dar</AssemblyName>
     <RootNamespace>DebugAdapterRunner</RootNamespace>
-    <TargetFramework>netcoreapp5.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup Label="Package References">
-    <PackageReference Include="Microsoft.VisualStudioEng.MicroBuild.Core" Version="$(Microsoft_VisualStudioEng_MicroBuild_Core_Version)">
+    <PackageReference Include="Microsoft.VisualStudioEng.MicroBuild.Core" Version="$(Microsoft_VisualStudioEng_MicroBuild_Core_Version)" GeneratePathProperty="true">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
 
-    <PackageReference Include="Newtonsoft.Json" Version="$(Newtonsoft_Json_VSCode_Version)" />
+    <PackageReference Include="Newtonsoft.Json" Version="$(Newtonsoft_Json_Version)" />
   </ItemGroup>
 
   <ItemGroup>
     <DropSignedFile Include="$(OutputPath)dar.dll" />
     <DropUnsignedFile Include="$(OutputPath)dar.pdb" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageNuspec Include="$(MSBuildThisFileDirectory)\DebugAdapterRunner.nuspec" />
+    <NugetPackages Include="Microsoft.VisualStudio.DebugAdapterRunner" />
   </ItemGroup>
 
   <Import Project="..\..\build\DropFiles.targets" />
