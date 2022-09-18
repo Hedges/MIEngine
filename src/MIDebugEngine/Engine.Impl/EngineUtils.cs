@@ -175,6 +175,7 @@ namespace Microsoft.MIDebugEngine
 
             private static readonly Entry[] s_arm32Registers = new Entry[]
             {
+                new Entry( "amx.+", true, "Apple AMX"),
                 new Entry( "sp", false, "CPU"),
                 new Entry( "lr", false, "CPU"),
                 new Entry( "pc", false, "CPU"),
