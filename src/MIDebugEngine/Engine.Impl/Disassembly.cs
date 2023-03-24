@@ -35,14 +35,14 @@ namespace Microsoft.MIDebugEngine
         private int FindIndex(ulong addr)
         {
             // allow addresses within an instruction to match the instruction
-            for (int i = 0; i < _instructions.Length - 1; ++i)
+            for(int i = 0; i < _instructions.Length - 1; ++i)
             {
-                if (_instructions[i].Addr <= addr && _instructions[i + 1].Addr > addr)
+                if(_instructions[i].Addr <= addr && _instructions[i + 1].Addr > addr)
                 {
                     return i;
                 }
             }
-            if (_instructions[_instructions.Length - 1].Addr == addr)
+            if(_instructions[_instructions.Length - 1].Addr == addr)
             {
                 return _instructions.Length - 1;
             }
@@ -55,12 +55,12 @@ namespace Microsoft.MIDebugEngine
 
         public bool Contains(ulong addr, int cnt)
         {
-            if (_instructions.Length == 0)
+            if(_instructions.Length == 0)
                 return false;
-            if (_instructions[0].Addr > addr || addr > _instructions[_instructions.Length - 1].Addr)
+            if(_instructions[0].Addr > addr || addr > _instructions[_instructions.Length - 1].Addr)
                 return false;
             int i = FindIndex(addr);
-            if (i < 0)
+            if(i < 0)
             {
                 return false;
             }
@@ -72,10 +72,10 @@ namespace Microsoft.MIDebugEngine
         public bool TryFetch(ulong addr, int cnt, out ICollection<DisasmInstruction> instructions)
         {
             instructions = null;
-            if (!Contains(addr, cnt))
+            if(!Contains(addr, cnt))
                 return false;
             int i = FindIndex(addr);
-            if (cnt < 0)
+            if(cnt < 0)
             {
                 i = i + cnt;
                 cnt = -cnt;
@@ -87,9 +87,9 @@ namespace Microsoft.MIDebugEngine
         public bool TryFetch(ulong startAddr, ulong endAddr, out ICollection<DisasmInstruction> instructions)
         {
             instructions = null;
-            if (!Contains(startAddr, 1))
+            if(!Contains(startAddr, 1))
                 return false;
-            if (!Contains(endAddr, 1))
+            if(!Contains(endAddr, 1))
                 return false;
             int i = FindIndex(startAddr);
             int j = FindIndex(endAddr);
@@ -101,9 +101,9 @@ namespace Microsoft.MIDebugEngine
         {
             Debug.Assert(Contains(addr, 1), "Address not in block");
             Touch = ++s_touchCount;
-            for (int i = 0; i < _instructions.Length; ++i)
+            for(int i = 0; i < _instructions.Length; ++i)
             {
-                if (_instructions[i].Addr == addr)
+                if(_instructions[i].Addr == addr)
                 {
                     return _instructions[i];
                 }
@@ -132,21 +132,21 @@ namespace Microsoft.MIDebugEngine
         private ICollection<DisasmInstruction> UpdateCache(ulong address, int nInstructions, DisasmInstruction[] instructions)
         {
             ICollection<DisasmInstruction> ret = null;
-            if (instructions != null && instructions.Length > 0)
+            if(instructions != null && instructions.Length > 0)
             {
                 DisassemblyBlock block = new DisassemblyBlock(instructions);
-                lock (_disassemlyCache)
+                lock(_disassemlyCache)
                 {
                     // push to the cache
                     DeleteRangeFromCache(block);    // removes any entry with the same key
-                    if (_disassemlyCache.Count >= cacheSize)
+                    if(_disassemlyCache.Count >= cacheSize)
                     {
                         long max = 0;
                         int toDelete = -1;
-                        for (int i = 0; i < _disassemlyCache.Count; ++i)
+                        for(int i = 0; i < _disassemlyCache.Count; ++i)
                         {
                             var e = _disassemlyCache.ElementAt(i);
-                            if (e.Value.Touch > max)
+                            if(e.Value.Touch > max)
                             {
                                 max = e.Value.Touch;
                                 toDelete = i;
@@ -173,11 +173,11 @@ namespace Microsoft.MIDebugEngine
             ICollection<DisasmInstruction> ret = null;
             ulong defaultAddr = address >= (ulong)nInstructions ? address - (ulong)nInstructions : 0;
 
-            lock (_disassemlyCache)
+            lock(_disassemlyCache)
             {
                 // check the cache, look for it to contain nInstructions back from the address
                 var kv = _disassemlyCache.FirstOrDefault((p) => p.Value.TryFetch(address, -nInstructions, out ret));
-                if (kv.Value != null)
+                if(kv.Value != null)
                     return ret.First().Addr;
             }
             ulong endAddress;
@@ -185,19 +185,19 @@ namespace Microsoft.MIDebugEngine
             var range = await _process.FindValidMemoryRange(address, (uint)(_process.MaxInstructionSize * (nInstructions+1)), (int)(_process.MaxInstructionSize * -nInstructions));
             startAddress = range.Item1;
             endAddress = range.Item2;
-            if (endAddress - startAddress == 0 || address < startAddress) // bad address range, no instructions
+            if(endAddress - startAddress == 0 || address < startAddress) // bad address range, no instructions
             {
                 return defaultAddr;
             }
-            lock (_disassemlyCache)
+            lock(_disassemlyCache)
             {
                 // check the cache with the adjusted range
                 var kv = _disassemlyCache.FirstOrDefault((p) => p.Value.TryFetch(startAddress, address < endAddress ? address : endAddress, out ret));
             }
-            if (ret == null)
+            if(ret == null)
             {
                 DisasmInstruction[] instructions = await Disassemble(_process, startAddress, endAddress);
-                if (instructions == null)
+                if(instructions == null)
                 {
                     return defaultAddr;    // unknown error condition
                 }
@@ -206,14 +206,14 @@ namespace Microsoft.MIDebugEngine
                 instructions = await VerifyDisassembly(instructions, startAddress, endAddress, address);
 
                 ret = UpdateCache(address, -nInstructions, instructions);
-                if (ret == null)
+                if(ret == null)
                 {
                     return defaultAddr;
                 }
             }
 
             int nLess = ret.Count((i) => i.Addr < address);
-            if (nLess < nInstructions)
+            if(nLess < nInstructions)
             {
                 // not enough instructions were fetched; back up one byte for each missing instruction
                 return ret.First().Addr < (ulong)(nInstructions - nLess) ? 0 : (ulong)((long)ret.First().Addr - (nInstructions - nLess));
@@ -237,11 +237,11 @@ namespace Microsoft.MIDebugEngine
 
             ICollection<DisasmInstruction> ret = null;
 
-            lock (_disassemlyCache)
+            lock(_disassemlyCache)
             {
                 // check the cache
                 var kv = _disassemlyCache.FirstOrDefault((p) => p.Value.TryFetch(address, nInstructions, out ret));
-                if (kv.Value != null)
+                if(kv.Value != null)
                     return ret;
             }
 
@@ -251,7 +251,7 @@ namespace Microsoft.MIDebugEngine
             startAddress = range.Item1;
             endAddress = range.Item2;
             int gap = (int)(startAddress - address);   // num of bytes before instructions begin
-            if (endAddress > startAddress && nInstructions > gap)
+            if(endAddress > startAddress && nInstructions > gap)
             {
                 nInstructions -= gap;
             }
@@ -259,15 +259,15 @@ namespace Microsoft.MIDebugEngine
             {
                 nInstructions = 0;
             }
-            if (endAddress - startAddress == 0 || nInstructions == 0)
+            if(endAddress - startAddress == 0 || nInstructions == 0)
             {
                 return null;
             }
-            lock (_disassemlyCache)
+            lock(_disassemlyCache)
             {
                 // re-check the cache with the verified memory range
                 var kv = _disassemlyCache.FirstOrDefault((p) => p.Value.TryFetch(startAddress, nInstructions, out ret));
-                if (kv.Value != null)
+                if(kv.Value != null)
                     return ret;
             }
 
@@ -280,13 +280,13 @@ namespace Microsoft.MIDebugEngine
 
         private async Task<DisasmInstruction[]> VerifyDisassembly(DisasmInstruction[] instructions, ulong startAddress, ulong endAddress, ulong targetAddress)
         {
-            if (startAddress > targetAddress || targetAddress > endAddress)
+            if(startAddress > targetAddress || targetAddress > endAddress)
             {
                 return instructions;
             }
             var originalInstructions = instructions;
             int count = 0;
-            while (instructions != null && (instructions.Length == 0 || Array.Find(instructions, (i)=>i.Addr == targetAddress) == null) && count < _process.MaxInstructionSize)
+            while(instructions != null && (instructions.Length == 0 || Array.Find(instructions, (i) => i.Addr == targetAddress) == null) && count < _process.MaxInstructionSize)
             {
                 count++;
                 startAddress--;         // back up one byte
@@ -297,10 +297,10 @@ namespace Microsoft.MIDebugEngine
 
         private void DeleteRangeFromCache(DisassemblyBlock block)
         {
-            for (int i = 0; i < _disassemlyCache.Count; ++i)
+            for(int i = 0; i < _disassemlyCache.Count; ++i)
             {
                 DisassemblyBlock elem = _disassemlyCache.ElementAt(i).Value;
-                if (block.Contains(elem.Address, elem.Count))
+                if(block.Contains(elem.Address, elem.Count))
                 {
                     _disassemlyCache.RemoveAt(i);
                     break;
@@ -314,18 +314,18 @@ namespace Microsoft.MIDebugEngine
             string cmd;
             Results results;
 
-            if (s_mixed)
+            if(s_mixed)
             {
                 cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
                 results = await process.CmdAsync(cmd, ResultClass.None);
-                if (results.ResultClass == ResultClass.done)
+                if(results.ResultClass == ResultClass.done)
                 {
                     try
                     {
                         IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
                         return disasm.ToArray();
                     }
-                    catch (Exception e)
+                    catch(Exception e)
                     {
                     }
                     finally
@@ -336,7 +336,7 @@ namespace Microsoft.MIDebugEngine
                     {
                         return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
                     }
-                    catch (Exception e)
+                    catch(Exception e)
                     {
                     }
                     finally
@@ -359,13 +359,13 @@ namespace Microsoft.MIDebugEngine
         // this is inefficient so we try and grab everything in one gulp
         internal async Task<IEnumerable<DisasmInstruction>> Disassemble(DebuggedProcess process, string file, uint line, uint dwInstructions)
         {
-            if (file.IndexOf(' ') >= 0) // only needs escaping if filename contains a space
+            if(file.IndexOf(' ') >= 0) // only needs escaping if filename contains a space
             {
                 file = process.EscapeSymbolPath(file);
             }
             string cmd = "-data-disassemble -f " + file + " -l " + line.ToString(CultureInfo.InvariantCulture) + " -n " + dwInstructions.ToString(CultureInfo.InvariantCulture) + " -- 1";
             Results results = await process.CmdAsync(cmd, ResultClass.None);
-            if (results.ResultClass != ResultClass.done)
+            if(results.ResultClass != ResultClass.done)
             {
                 return null;
             }
@@ -376,13 +376,18 @@ namespace Microsoft.MIDebugEngine
         private static DisasmInstruction[] DecodeDisassemblyInstructions(TupleValue[] items)
         {
             DisasmInstruction[] instructions = new DisasmInstruction[items.Length];
-            for (int i = 0; i < items.Length; i++)
+            for(int i = 0; i < items.Length; i++)
             {
                 DisasmInstruction inst = new DisasmInstruction();
                 inst.Addr = items[i].FindAddr("address");
                 inst.AddressString = items[i].FindString("address");
                 inst.Symbol = items[i].TryFindString("func-name");
-                inst.Offset = items[i].Contains("offset") ? items[i].FindUint("offset") : 0;
+                if(inst.Symbol.Equals("??", StringComparison.Ordinal))
+                {
+                    inst.Symbol = "";
+                }
+                ulong offset = items[i].TryFindAddr("offset") ?? 0;
+                inst.Offset = (offset < 0x7fffffff) ? (uint)offset : 0;
                 inst.Opcode = items[i].FindString("inst");
                 inst.CodeBytes = items[i].TryFindString("opcodes");
                 inst.Line = 0;
@@ -393,7 +398,7 @@ namespace Microsoft.MIDebugEngine
         }
         private static IEnumerable<DisasmInstruction> DecodeSourceAnnotatedDisassemblyInstructions(DebuggedProcess process, TupleValue[] items)
         {
-            foreach (var item in items)
+            foreach(var item in items)
             {
                 uint line = item.TryFindUint("line") ?? 1;
                 string file = process.GetMappedFileFromTuple(item);
@@ -407,7 +412,12 @@ namespace Microsoft.MIDebugEngine
                         disassemblyData.Addr = asm_item.FindAddr("address");
                         disassemblyData.AddressString = asm_item.FindString("address");
                         disassemblyData.Symbol = asm_item.TryFindString("func-name");
-                        disassemblyData.Offset = asm_item.Contains("offset") ? asm_item.FindUint("offset") : 0;
+                        if(disassemblyData.Symbol.Equals("??", StringComparison.Ordinal))
+                        {
+                            disassemblyData.Symbol = "";
+                        }
+                        ulong offset = asm_item.TryFindAddr("offset") ?? 0;
+                        disassemblyData.Offset = (offset < 0x7fffffff) ? (uint)offset : 0;
                         disassemblyData.Opcode = asm_item.FindString("inst");
                         disassemblyData.CodeBytes = asm_item.TryFindString("opcodes");
                         disassemblyData.Line = line;

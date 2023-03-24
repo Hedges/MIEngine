@@ -657,6 +657,17 @@ namespace MICore
             return results;
         }
 
+        public Results IsModuleUnload(string cmd)
+        {
+            Results results = null;
+            if (cmd.StartsWith("library-unloaded,", StringComparison.Ordinal))
+            {
+                MIResults res = new MIResults(_debugger.Logger);
+                results = res.ParseResultList(cmd.Substring(17));
+            }
+            return results;
+        }
+
         abstract public bool AllowCommandsWhileRunning();
 
         public virtual bool CanDetach()

@@ -39,6 +39,7 @@ namespace MICore
         public event EventHandler ErrorEvent;
         public event EventHandler ModuleLoadEvent;  // occurs when stopped after a libraryLoadEvent
         public event EventHandler LibraryLoadEvent; // a shared library was loaded
+        public event EventHandler LibraryUnloadEvent; // a shared library was unloaded
         public event EventHandler BreakChangeEvent; // a breakpoint was changed
         public event EventHandler BreakCreatedEvent; // a breakpoint was created
         public event EventHandler ThreadCreatedEvent;
@@ -1267,6 +1268,7 @@ namespace MICore
                 switch (c)
                 {
                     case '~':
+                    case '@':
                         OnDebuggeeOutput(noprefix);         // Console stream
                         break;
                     case '^':
@@ -1403,6 +1405,13 @@ namespace MICore
                 if (LibraryLoadEvent != null)
                 {
                     LibraryLoadEvent(this, new ResultEventArgs(results));
+                }
+            }
+            else if ((results = MICommandFactory.IsModuleUnload(cmd)) != null)
+            {
+                if (LibraryUnloadEvent != null)
+                {
+                    LibraryUnloadEvent(this, new ResultEventArgs(results));
                 }
             }
             else if (cmd.StartsWith("breakpoint-modified,", StringComparison.Ordinal))
