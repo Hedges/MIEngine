@@ -15,6 +15,8 @@ namespace Microsoft.MIDebugEngine
 {
     public static class EngineUtils
     {
+        private static TargetArchitecture arch;
+
         internal static string AsAddr(ulong addr, bool is64bit)
         {
             string addrFormat = is64bit ? "x16" : "x8";
@@ -24,12 +26,22 @@ namespace Microsoft.MIDebugEngine
         internal static string GetAddressDescription(DebuggedProcess proc, ulong ip)
         {
             string description = null;
-            proc.WorkerThread.RunOperation(async () =>
+            try
             {
-                description = await EngineUtils.GetAddressDescriptionAsync(proc, ip);
+                proc.WorkerThread.RunOperation(async () =>
+                {
+                    description = await EngineUtils.GetAddressDescriptionAsync(proc, ip);
+                }
+                );
+                if(description.Equals("??", StringComparison.Ordinal))
+                {
+                    description = AsAddr(ip, proc.Is64BitArch);
+                }
             }
-            );
-
+            catch(MIException e)
+            {
+                description = AsAddr(ip, proc.Is64BitArch);
+            }
             return description;
         }
 
@@ -37,11 +49,11 @@ namespace Microsoft.MIDebugEngine
         {
             string location = null;
             IEnumerable<DisasmInstruction> instructions = await proc.Disassembly.FetchInstructions(ip, 1);
-            if (instructions != null)
+            if(instructions != null)
             {
-                foreach (DisasmInstruction instruction in instructions)
+                foreach(DisasmInstruction instruction in instructions)
                 {
-                    if (location == null && !String.IsNullOrEmpty(instruction.Symbol))
+                    if(location == null && !String.IsNullOrEmpty(instruction.Symbol))
                     {
                         location = instruction.Symbol;
                         break;
@@ -49,10 +61,10 @@ namespace Microsoft.MIDebugEngine
                 }
             }
 
-            if (location == null)
+            if(location == null)
             {
                 string addrFormat = proc.Is64BitArch ? "x16" : "x8";
-                location = ip.ToString(addrFormat, CultureInfo.InvariantCulture);
+                location = "0x" + ip.ToString(addrFormat, CultureInfo.InvariantCulture);
             }
 
             return location;
@@ -61,7 +73,7 @@ namespace Microsoft.MIDebugEngine
 
         public static void CheckOk(int hr)
         {
-            if (hr != 0)
+            if(hr != 0)
             {
                 throw new MIException(hr);
             }
@@ -69,7 +81,7 @@ namespace Microsoft.MIDebugEngine
 
         public static void RequireOk(int hr)
         {
-            if (hr != 0)
+            if(hr != 0)
             {
                 throw new InvalidOperationException();
             }
@@ -95,11 +107,11 @@ namespace Microsoft.MIDebugEngine
 
         internal static bool ProcIdEquals(AD_PROCESS_ID pid1, AD_PROCESS_ID pid2)
         {
-            if (pid1.ProcessIdType != pid2.ProcessIdType)
+            if(pid1.ProcessIdType != pid2.ProcessIdType)
             {
                 return false;
             }
-            else if (pid1.ProcessIdType == (int)enum_AD_PROCESS_ID.AD_PROCESS_ID_SYSTEM)
+            else if(pid1.ProcessIdType == (int)enum_AD_PROCESS_ID.AD_PROCESS_ID_SYSTEM)
             {
                 return pid1.dwProcessId == pid2.dwProcessId;
             }
@@ -108,7 +120,10 @@ namespace Microsoft.MIDebugEngine
                 return pid1.guidProcessId == pid2.guidProcessId;
             }
         }
-
+        public static void SetTargetArch(TargetArchitecture _arch)
+        {
+            arch = _arch;
+        }
 
         /// <summary>
         /// This allows console commands to be sent through the eval channel via a '-exec ' or '`' preface
@@ -158,16 +173,19 @@ namespace Microsoft.MIDebugEngine
 
             private static readonly Entry[] s_arm32Registers = new Entry[]
             {
+                new Entry( "amx.+", true, "Apple AMX"),
                 new Entry( "sp", false, "CPU"),
                 new Entry( "lr", false, "CPU"),
                 new Entry( "pc", false, "CPU"),
                 new Entry( "cpsr", false, "CPU"),
                 new Entry( "r[0-9]+", true, "CPU"),
+                new Entry( "x[0-9]+", true, "CPU"),
                 new Entry( "fpscr", false, "FPU"),
                 new Entry( "f[0-9]+", true, "FPU"),
                 new Entry( "s[0-9]+", true, "IEEE Single"),
                 new Entry( "d[0-9]+", true, "IEEE Double"),
-                new Entry( "q[0-9]+", true, "Vector"),
+                new Entry( "q[0-9]+", true, "NEON"),
+                new Entry( "v[0-9]+", true, "Vector"),
             };
 
             private static readonly Entry[] s_X86Registers = new Entry[]
@@ -213,6 +231,38 @@ namespace Microsoft.MIDebugEngine
                 new Entry( "mm[0-7][0-7]", true, "AMD3DNow" ),
                 new Entry( "mm[0-7]", true, "MMX" ),
             };
+
+            private static readonly Entry[] s_X64Registers = new Entry[]
+            {
+                new Entry( "rax", false, "CPU" ),
+                new Entry( "rbx", false, "CPU" ),
+                new Entry( "rcx", false, "CPU" ),
+                new Entry( "rdx", false, "CPU" ),
+                new Entry( "rsi", false, "CPU" ),
+                new Entry( "rdi", false, "CPU" ),
+                new Entry( "rbp", false, "CPU" ),
+                new Entry( "rsp", false, "CPU" ),
+                new Entry( "r8", false, "CPU" ),
+                new Entry( "r9", false, "CPU" ),
+                new Entry( "r10", false, "CPU" ),
+                new Entry( "r11", false, "CPU" ),
+                new Entry( "r12", false, "CPU" ),
+                new Entry( "r13", false, "CPU" ),
+                new Entry( "r14", false, "CPU" ),
+                new Entry( "r15", false, "CPU" ),
+                new Entry( "rip", false, "CPU" ),
+                new Entry( "eflags", false, "CPU" ),
+                new Entry( "cs", false, "CPU Segments" ),
+                new Entry( "ds", false, "CPU Segments" ),
+                new Entry( "es", false, "CPU Segments" ),
+                new Entry( "ss", false, "CPU Segments" ),
+                new Entry( "fs", false, "CPU Segments" ),
+                new Entry( "gs", false, "CPU Segments" ),
+                new Entry( "st[0-7]", true, "Floating Point" ),
+                new Entry( "xmm[0-9]+", true, "SSE" ),
+                new Entry( "ymm.+", true, "AVX" ),
+            };
+
             private static readonly Entry[] s_IntelGTRegisters = new Entry[]
             {
                 new Entry( "r[0-9]+$", true, "GRF"),
@@ -243,40 +293,60 @@ namespace Microsoft.MIDebugEngine
 
             public static RegisterNameMap Create(string[] registerNames)
             {
-                // TODO: more robust mechanism for determining processor architecture
+                //// TODO: more robust mechanism for determining processor architecture
+                //RegisterNameMap map = new RegisterNameMap();
+                //if (registerNames[0][0] == 'r' || registerNames[0][0] == 'x') // registers are prefixed with 'r' or 'x', assume ARM and initialize its register sets
+                //{
+                //    map._map = s_arm32Registers;
+                //}
+                //else if (registerNames.Contains("eax")) // x86 register set
+                //{
+                //    map._map = s_X86Registers;
+                //}
+                //else if (registerNames.Contains("ce")) // Intel GPU register set
+                //{
+                //    map._map = s_IntelGTRegisters;
+                //}
+                //else
+                //{
+                //    // report one global register set
+                //    map._map = s_allRegisters;
+                //}
                 RegisterNameMap map = new RegisterNameMap();
-                if (registerNames.Contains("lr"))
+                switch(arch)
                 {
-                    map._map = s_arm32Registers;
-                }
-                else if (registerNames.Contains("eax")) // x86 register set
-                {
-                    map._map = s_X86Registers;
-                }
-                else if (registerNames.Contains("ce")) // Intel GPU register set
-                {
-                    map._map = s_IntelGTRegisters;
-                }
-                else
-                {
-                    // report one global register set
-                    map._map = s_allRegisters;
+                    case TargetArchitecture.ARM:
+                    case TargetArchitecture.ARM64:
+                        map._map = s_arm32Registers;
+                        break;
+
+                    case TargetArchitecture.X86:
+                        map._map = s_X86Registers;
+                        break;
+
+                    case TargetArchitecture.X64:
+                        map._map = s_X64Registers;
+                        break;
+
+                    default:
+                        map._map = s_allRegisters;
+                        break;
                 }
                 return map;
             }
 
             public string GetGroupName(string regName)
             {
-                foreach (var e in _map)
+                foreach(var e in _map)
                 {
-                    if (e.IsRegex)
+                    if(e.IsRegex)
                     {
-                        if (System.Text.RegularExpressions.Regex.IsMatch(regName, e.Name))
+                        if(System.Text.RegularExpressions.Regex.IsMatch(regName, e.Name))
                         {
                             return e.Group;
                         }
                     }
-                    else if (e.Name == regName)
+                    else if(e.Name == regName)
                     {
                         return e.Group;
                     }
@@ -287,7 +357,7 @@ namespace Microsoft.MIDebugEngine
 
         internal static string GetExceptionDescription(Exception exception)
         {
-            if (!ExceptionHelper.IsCorruptingException(exception))
+            if(!ExceptionHelper.IsCorruptingException(exception))
             {
                 return exception.Message;
             }
@@ -341,7 +411,7 @@ namespace Microsoft.MIDebugEngine
             {
                 get
                 {
-                    if (s_instance == null)
+                    if(s_instance == null)
                     {
                         s_instance = new SignalMap();
                     }

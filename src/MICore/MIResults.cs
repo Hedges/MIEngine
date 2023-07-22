@@ -684,6 +684,8 @@ namespace MICore
 
         private Logger Logger { get; set; }
 
+        private bool parsePath = false;
+
         public MIResults(Logger logger)
         {
             Logger = logger;
@@ -843,8 +845,13 @@ namespace MICore
                 ParseError(resultString, "variable not found", resultStr);
                 return null;
             }
-            string name = resultStr.Prefix(equals).Extract(resultString);
-            ResultValue? value = ParseResultValue(resultString, resultStr.Advance(equals + 1), out rest);
+            string name = resultStr.Prefix(equals).Extract(_resultString);
+            if(name == "fullname")
+            {
+                parsePath = true;
+            }
+            ResultValue? value = ParseResultValue(resultStr.Advance(equals + 1), out rest);
+            parsePath = false;
             if (value == null)
             {
                 return null;
@@ -901,6 +908,12 @@ namespace MICore
                 }
                 else if (c == '\\')
                 {
+                    if (parsePath)
+                    {
+                        c = '/';
+                    }
+                    else
+                    {
                     // escaped character
                     c = resultString[++i];
                     switch (c)
@@ -920,6 +933,7 @@ namespace MICore
                             }
                             break;
                     }
+                }
                 }
                 output.Append(c);
             }

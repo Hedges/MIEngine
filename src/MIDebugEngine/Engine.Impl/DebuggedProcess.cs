@@ -691,6 +691,7 @@ namespace Microsoft.MIDebugEngine
                 commands.AddRange(_launchOptions.CustomLaunchSetupCommands);
 
                 SetTargetArch(_launchOptions.TargetArchitecture);
+                EngineUtils.SetTargetArch(_launchOptions.TargetArchitecture);
             }
             else
             {
@@ -1035,6 +1036,7 @@ namespace Microsoft.MIDebugEngine
             // 2. else if the user specified an architecture then use that
             // 3. otherwise default to x64
             SetTargetArch(DefaultArch()); // set the default value based on user input
+            EngineUtils.SetTargetArch(DefaultArch());
 
             Func<string, Task> successHandler = (string resultsStr) =>
             {
@@ -1043,6 +1045,7 @@ namespace Microsoft.MIDebugEngine
                 if (archFromTarget != TargetArchitecture.Unknown)
                 {
                     SetTargetArch(archFromTarget);
+                    EngineUtils.SetTargetArch(archFromTarget);
                 }
 
                 return Task.FromResult(0);
@@ -1177,41 +1180,25 @@ namespace Microsoft.MIDebugEngine
             if (String.IsNullOrWhiteSpace(reason) && !this.EntrypointHit)
             {
                 breakRequest = BreakRequest.None;   // don't let stopping interfere with launch processing
-                bool shouldContinue = true;
 
-                if (_launchOptions.StopAtConnect)
-                {
-                    this.EntrypointHit = true;
-                    await this.ClearEntrypointBreakpoint();
-
-                    // Send a breakpoint event to force the client to stop (entry point may not stop depending on how the user started debugging)
-                    _callback.OnBreakpoint(thread, new ReadOnlyCollection<object>(new AD7BoundBreakpoint[] { }));
-                    shouldContinue = false;
-                }
                 // MinGW sends a stopped event on attach. gdb<->gdbserver also sends a stopped event when first attached.
                 // If this is a gdb<->gdbserver connection, ignore this as the entryPoint
-                else if (IsLocalLaunchUsingServer())
+                if (IsLocalLaunchUsingServer())
                 {
                     // If the stopped event occurs on gdbserver, ignore it unless it contains a filename.
                     TupleValue frame = results.Results.TryFind<TupleValue>("frame");
                     if (frame.Contains("file"))
                     {
-                        this.EntrypointHit = true;
-                        await this.ClearEntrypointBreakpoint();
-                        _callback.OnEntryPoint(thread);
-                        shouldContinue = false;
+                        //this.EntrypointHit = true;
                     }
                 }
                 else
                 {
-                    this.EntrypointHit = true;
-                    await this.ClearEntrypointBreakpoint();
+                    //this.EntrypointHit = true;
                 }
 
-                if (shouldContinue)
-                {
-                    CmdContinueAsync();
-                }
+                CmdContinueAsync();
+
                 FireDeviceAppLauncherResume();
             }
             else if (reason == "entry-point-hit")
@@ -1433,11 +1420,12 @@ namespace Microsoft.MIDebugEngine
             }
             else
             {
-                if (breakRequest == BreakRequest.None)
-                {
-                    Debug.Fail("Unknown stopping reason");
-                    _callback.OnException(thread, "Unknown", "Unknown stopping event", 0);
-                }
+                //if (breakRequest == BreakRequest.None)
+                //{
+                //    Debug.Fail("Unknown stopping reason");
+                //    _callback.OnException(thread, "Unknown", "Unknown stopping event", 0);
+                //}
+                _callback.OnAsyncBreakComplete(thread);
             }
             if (IsExternalBreakRequest(breakRequest))
             {
@@ -1458,14 +1446,6 @@ namespace Microsoft.MIDebugEngine
                 await ConsoleCmdAsync("process handle --pass true --stop false --notify false SIGHUP", allowWhileRunning: false, ignoreFailures: true);
             }
 
-            await this.ClearEntrypointBreakpoint();
-        }
-
-        /// <summary>
-        /// Attempts to remove the breakpoint automatically set at the entrypoint of the application.
-        /// </summary>
-        private async Task ClearEntrypointBreakpoint()
-        {
             if (this._deleteEntryPointBreakpoint && !String.IsNullOrWhiteSpace(this._entryPointBreakpoint))
             {
                 // Try and delete the entrypoint breakpoint. We only try this once but in some cases this won't succeed
@@ -2138,6 +2118,17 @@ namespace Microsoft.MIDebugEngine
                 bytes[pos] = Convert.ToByte(strByte, 16);
             }
             return toRead;
+        }
+
+        internal async Task<uint> WriteProcessMemory(ulong address, uint count, byte[] bytes)
+        {
+            string cmd = "-data-write-memory-bytes " + EngineUtils.AsAddr(address, Is64BitArch) + " " + BitConverter.ToString(bytes).Replace("-", "");
+            Results results = await CmdAsync(cmd, ResultClass.None);
+            if (results.ResultClass == ResultClass.error)
+            {
+                return 0;
+            }
+            return count;
         }
 
         internal async Task<Tuple<ulong, ulong>> FindValidMemoryRange(ulong address, uint count, int offset)

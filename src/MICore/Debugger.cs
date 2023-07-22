@@ -1274,7 +1274,7 @@ namespace MICore
                         {
                             WaitingOperationDescriptor? waitingOperation;
                             if (_waitingOperations.TryGetValue(id, out waitingOperation) &&
-                                line == waitingOperation.Command)
+                                line == waitingOperation.Command.Trim())
                             {
                                 // This is just the echo. Ignore.
                                 // Sometimes with lldb we are seeing 2 command echos 
@@ -1288,8 +1288,32 @@ namespace MICore
                 switch (c)
                 {
                     case '~':
-                    case '@':
                         OnDebuggeeOutput(noprefix);         // Console stream
+                        break;
+                    case '@':
+                        if ((this.MICommandFactory.Mode == MIMode.Lldb) && (_launchOptions is PipeLaunchOptions))
+                        {
+                            string s = noprefix;
+                            s = s.Replace("\"", "");
+                            s = s.Replace("\\r", "\r");
+                            s = s.Replace("\\n", "\n");
+                            s = s.Replace("\\t", "  ");
+                            if (_consoleCommandOutput == null)
+                            {
+                                if (OutputStringEvent != null)
+                                {
+                                    OutputStringEvent(this, s);
+                                }
+                            }
+                            else
+                            {
+                                _consoleCommandOutput.Append(s);
+                            }
+                        }
+                        else
+                        {
+                            OnDebuggeeOutput(noprefix);     // Console stream
+                        }
                         break;
                     case '^':
                         OnResult(noprefix, token);
@@ -1305,7 +1329,10 @@ namespace MICore
                         break;
                     default:
                         // Token is not prepended, use original line.
-                        OnDebuggeeOutput(originalLine + '\n');
+                        if (this.MICommandFactory.Mode == MIMode.Gdb)
+                        {
+                            OnDebuggeeOutput(originalLine + '\n');
+                        }
                         break;
                 }
             }
@@ -1481,7 +1508,10 @@ namespace MICore
                 {
                     cmd += "\n";
                 }
-                OnDebuggeeOutput("=" + cmd);
+                if (this.MICommandFactory.Mode == MIMode.Gdb)
+                {
+                    OnDebuggeeOutput("=" + cmd);
+                }
             }
         }
 

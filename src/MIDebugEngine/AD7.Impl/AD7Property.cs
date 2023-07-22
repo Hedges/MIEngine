@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.MIDebugEngine.Natvis;
 using Microsoft.VisualStudio.Debugger.Interop;
 using Microsoft.VisualStudio.Debugger.Interop.MI;
@@ -378,26 +379,28 @@ namespace Microsoft.MIDebugEngine
                 return;
 
             uint fetched = 0;
-            _bytes = new byte[0];
+            _bytes = new byte[16];
 
             IDebugMemoryContext2 memAddr;
-            if (GetMemoryContext(out memAddr) != Constants.S_OK)
+            GetMemoryContext(out memAddr);
+            try
             {
-                // no address in the expression value, try casting to a char*
+                // try casting to a char* first
                 VariableInformation v = new VariableInformation("(char*)(" + _variableInformation.FullName() + ")", (VariableInformation)_variableInformation);
                 v.SyncEval();
-                if (v.Error)
+                if (!v.Error)
                 {
+                    AD7Property p = new AD7Property(_engine, v);
+                    uint pLen = (uint)v.Value.Length;
+                    if (pLen != 0)
+                    {
+                        _bytes = Encoding.ASCII.GetBytes(v.Value);
+                    }
                     return;
                 }
-                AD7Property p = new AD7Property(_engine, v);
-                uint pLen;
-                if (p.GetStringCharLength(out pLen) == Constants.S_OK)
-                {
-                    _bytes = new byte[pLen];
-                    p.GetStringRawBytes(pLen, _bytes, out fetched);
-                }
-                return;
+            }
+            catch (Exception e)
+            {
             }
 
             IDebugMemoryBytes2 memContent;

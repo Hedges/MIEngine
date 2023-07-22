@@ -59,7 +59,7 @@ namespace Microsoft.SSHDebugPS
         // Use padding to expand column width. 10 for pid and 32 for userid as that is the max size for each
         // Tested this format with different distributions of Linux and container distributions. This command (and the alternative without the flags) seems 
         // to be the one that works the best between standard *nix and BusyBox implementations of ps.
-        private const string PSCommandLineFormat = "ps{0}-o pid=pppppppppp{1} -o ruser=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr -o args";
+        private const string PSCommandLineFormat = "ps{0}-o pid=pppppppppp{1} -o user=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr -o args";
         private SystemInformation _currentSystemInformation;
         private ColumnDef _pidCol;
         private ColumnDef _flagsCol;
