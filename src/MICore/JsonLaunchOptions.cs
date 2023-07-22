@@ -51,7 +51,7 @@ namespace MICore.Json.LaunchOptions
         /// <summary>
         /// Indicates the console debugger that the MIDebugEngine will connect to. Allowed values are "gdb" "lldb".
         /// </summary>
-        [JsonProperty("MIMode", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonProperty(nameof(MIMode), DefaultValueHandling = DefaultValueHandling.Ignore)]
         public string MIMode { get; set; }
 
         /// <summary>
