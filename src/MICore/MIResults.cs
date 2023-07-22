@@ -681,6 +681,8 @@ namespace MICore
         private string _resultString;
         private Logger Logger { get; set; }
 
+        private bool parsePath = false;
+
         public MIResults(Logger logger)
         {
             Logger = logger;
@@ -865,7 +867,12 @@ namespace MICore
                 return null;
             }
             string name = resultStr.Prefix(equals).Extract(_resultString);
+            if(name == "fullname")
+            {
+                parsePath = true;
+            }
             ResultValue value = ParseResultValue(resultStr.Advance(equals + 1), out rest);
+            parsePath = false;
             if (value == null)
             {
                 return null;
@@ -922,24 +929,31 @@ namespace MICore
                 }
                 else if (c == '\\')
                 {
-                    // escaped character
-                    c = _resultString[++i];
-                    switch (c)
+                    if (parsePath)
                     {
-                        case 'n': c = '\n'; break;
-                        case 'r': c = '\r'; break;
-                        case 't': c = '\t'; break;
-                        default:
-                            if (c >= '0' && c <= '3')
-                            {
-                                i = i - 1;
-                                if (SpanOctalChars(_resultString, ref i, output))
+                        c = '/';
+                    }
+                    else
+                    {
+                        // escaped character
+                        c = _resultString[++i];
+                        switch (c)
+                        {
+                            case 'n': c = '\n'; break;
+                            case 'r': c = '\r'; break;
+                            case 't': c = '\t'; break;
+                            default:
+                                if (c >= '0' && c <= '3')
                                 {
-                                    continue;   // handled the output of the octal-encoded chars
+                                    i = i - 1;
+                                    if (SpanOctalChars(_resultString, ref i, output))
+                                    {
+                                        continue;   // handled the output of the octal-encoded chars
+                                    }
+                                    c = _resultString[i]; // just emit the '\\'
                                 }
-                                c = _resultString[i]; // just emit the '\\'
-                            }
-                            break;
+                                break;
+                        }
                     }
                 }
                 output.Append(c);
