@@ -1285,7 +1285,10 @@ namespace MICore
                         break;
                     default:
                         // Token is not prepended, use original line.
-                        OnDebuggeeOutput(originalLine + '\n');
+                        if (this.MICommandFactory.Mode == MIMode.Gdb)
+                        {
+                            OnDebuggeeOutput(originalLine + '\n');
+                        }
                         break;
                 }
             }
@@ -1469,7 +1472,10 @@ namespace MICore
                 {
                     cmd += "\n";
                 }
-                OnDebuggeeOutput("=" + cmd);
+                if (this.MICommandFactory.Mode == MIMode.Gdb)
+                {
+                    OnDebuggeeOutput("=" + cmd);
+                }
             }
         }
 
