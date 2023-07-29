@@ -824,10 +824,13 @@ namespace Microsoft.MIDebugEngine
                     };
 
                     // Builds '-break-insert' for 'main'.
-                    StringBuilder breakInsertCommand = await this.MICommandFactory.BuildEntryBreakInsert();
-                    breakInsertCommand.Append("main");
+                    if ((this.MICommandFactory.Mode == MIMode.Gdb) || (_launchOptions is UnixShellPortLaunchOptions))
+                    {
+                        StringBuilder breakInsertCommand = await this.MICommandFactory.BuildEntryBreakInsert();
+                        breakInsertCommand.Append("main");
 
-                    commands.Add(new LaunchCommand(breakInsertCommand.ToString(), ignoreFailures: true, successResultsHandler: breakMainSuccessResultsHandler));
+                        commands.Add(new LaunchCommand(breakInsertCommand.ToString(), ignoreFailures: true, successResultsHandler: breakMainSuccessResultsHandler));
+                    }
 
                     if (null != localLaunchOptions)
                     {
