@@ -8,6 +8,8 @@ using System.Text;
 using Microsoft.VisualStudio.Debugger.Interop;
 using System.Diagnostics;
 using System.Numerics;
+using static System.Net.Mime.MediaTypeNames;
+using System.Linq;
 
 namespace Microsoft.MIDebugEngine
 {
@@ -200,6 +202,33 @@ namespace Microsoft.MIDebugEngine
                                         r += ", ";
                                     }
                                     big >>= 32;
+                                }
+                                properties[i].bstrValue = r;
+                            }
+                        }
+                        else if (reg.Group.Name == "Vector")
+                        {
+                            int beg = 0, end = properties[i].bstrValue.Length;
+                            if (_engine.DebuggedProcess.Is64BitArch)
+                            {
+                                beg = 1;
+                                end = end - 1;
+                            }
+                            if (end > beg)
+                            {
+                                string[] separators = { "0x", ", " };
+                                string[] hexes = properties[i].bstrValue.Substring(beg, end - beg).Split(separators, System.StringSplitOptions.RemoveEmptyEntries);
+                                byte[] bytes = Array.ConvertAll<string, byte>(hexes, s => Byte.Parse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));
+                                string r = "";
+                                for (int c = 0; c < 4; c++)
+                                {
+                                    UInt32 h = BitConverter.ToUInt32(bytes, 4 * c);
+                                    float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                                    r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                                    if (c != 3)
+                                    {
+                                        r += ", ";
+                                    }
                                 }
                                 properties[i].bstrValue = r;
                             }
