@@ -1288,8 +1288,17 @@ namespace MICore
                 switch (c)
                 {
                     case '~':
-                    case '@':
                         OnDebuggeeOutput(noprefix);         // Console stream
+                        break;
+                    case '@':
+                        if ((this.MICommandFactory.Mode == MIMode.Gdb) || (_launchOptions is UnixShellPortLaunchOptions))
+                        {
+                            OnDebuggeeOutput(originalLine + '\n');
+                        }
+                        else
+                        {
+                            OnDebuggeeOutput(noprefix);         // Console stream
+                        }
                         break;
                     case '^':
                         OnResult(noprefix, token);
