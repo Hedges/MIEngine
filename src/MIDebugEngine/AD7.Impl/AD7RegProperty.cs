@@ -246,7 +246,7 @@ namespace Microsoft.MIDebugEngine
                         {
                             properties[i].bstrValue = FormatNeonRegister(properties[i].bstrValue);
                         }
-                        else if (reg.Group.Name == "Vector")
+                        else if ((reg.Group.Name == "Vector") || (reg.Group.Name == "SSE"))
                         {
                             properties[i].bstrValue = FormatVectorRegister(properties[i].bstrValue);
                         }
