@@ -1271,14 +1271,11 @@ namespace MICore
                         OnDebuggeeOutput(noprefix);         // Console stream
                         break;
                     case '@':
-                        if ((this.MICommandFactory.Mode == MIMode.Gdb) || (_launchOptions is UnixShellPortLaunchOptions))
+                        if ((this.MICommandFactory.Mode == MIMode.Lldb) && (_launchOptions is PipeLaunchOptions))
                         {
-                            OnDebuggeeOutput(originalLine + '\n');
+                            noprefix = originalLine.Substring(2, originalLine.Length - 7) + '\n';
                         }
-                        else
-                        {
-                            OnDebuggeeOutput(noprefix);         // Console stream
-                        }
+                        OnDebuggeeOutput(noprefix);         // Console stream
                         break;
                     case '^':
                         OnResult(noprefix, token);
