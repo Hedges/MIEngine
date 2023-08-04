@@ -1,8 +1,44 @@
 ---
 name: $(Date:yyyMMdd).$(Rev:r)
+
+schedules:
+# Run on the 1st and 15th of every month
+- cron: 30 1 1,15 * * 
+  displayName: Biweekly Build
+  branches:
+    include:
+    - main
+  always: true # Run even if there are no code changes
+
 stages:
-- stage: CodeAnalysis
+- stage: CI
   dependsOn: []
+  variables:
+  - name: SignType
+    value: test
+  - name: TeamName
+    value: MDDDebugger
+  - name: Codeql.Enabled
+    value: true
+  jobs:
+  - template: ./jobs/VSEngSS-MicroBuild2022-1ES.job.yml
+    parameters:
+      DisplayName: 'Lab.Debug'
+      JobTemplate:
+      - template: ../templates/Build.template.yml
+        parameters:
+          Configuration: 'Lab.Debug'
+
+  - template: ./jobs/VSEngSS-MicroBuild2022-1ES.job.yml
+    parameters:
+      DisplayName: 'Lab.Release'
+      JobTemplate:
+      - template: ../templates/Build.template.yml
+        parameters:
+          Configuration: 'Lab.Release'
+
+- stage: CodeAnalysis
+  dependsOn: [CI]
   jobs:
   - template: ./jobs/MSHosted-Windows.job.yml
     parameters:
@@ -11,44 +47,4 @@ stages:
       - template: ../templates/CodeAnalysis.template.yml
         parameters:
           Configuration: 'Lab.Debug'
-
-- stage: CI
-  dependsOn: []
-  variables:
-  - name: SignType
-    value: test
-  - name: TeamName
-    value: MDDDebugger
-  jobs:
-  - template: ./jobs/VSEngSS-MicroBuild2019.job.yml
-    parameters:
-      DisplayName: 'Lab.Debug'
-      JobTemplate:
-      - template: ../templates/Build.template.yml
-        parameters:
-          Configuration: 'Lab.Debug'
-
-  - template: ./jobs/VSEngSS-MicroBuild2019.job.yml
-    parameters:
-      DisplayName: 'Lab.Release'
-      JobTemplate:
-      - template: ../templates/Build.template.yml
-        parameters:
-          Configuration: 'Lab.Release'
-  
-  - template: ./jobs/VSEngSS-MicroBuild2019.job.yml
-    parameters:
-      DisplayName: 'Desktop.Debug'
-      JobTemplate:
-      - template: ../templates/Build.template.yml
-        parameters:
-          Configuration: 'Desktop.Debug'
-
-  - template: ./jobs/VSEngSS-MicroBuild2019.job.yml
-    parameters:
-      DisplayName: 'Desktop.Release'
-      JobTemplate:
-      - template: ../templates/Build.template.yml
-        parameters:
-          Configuration: 'Desktop.Release'
 ...

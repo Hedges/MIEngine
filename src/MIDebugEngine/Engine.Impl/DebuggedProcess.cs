@@ -52,6 +52,7 @@ namespace Microsoft.MIDebugEngine
         private IProcessSequence _childProcessHandler;
         private bool _deleteEntryPointBreakpoint;
         private string _entryPointBreakpoint = string.Empty;
+        private bool? _simpleValuesExcludesRefTypes = null;
 
         public DebuggedProcess(bool bLaunched, LaunchOptions launchOptions, ISampleEngineCallback callback, WorkerThread worker, BreakpointManager bpman, AD7Engine engine, HostConfigurationStore configStore, HostWaitLoop waitLoop = null) : base(launchOptions, engine.Logger)
         {
@@ -65,7 +66,7 @@ namespace Microsoft.MIDebugEngine
             _deleteEntryPointBreakpoint = false;
             MICommandFactory = MICommandFactory.GetInstance(launchOptions.DebuggerMIMode, this);
             _waitDialog = (MICommandFactory.SupportsStopOnDynamicLibLoad() && launchOptions.WaitDynamicLibLoad) ? new HostWaitDialog(ResourceStrings.LoadingSymbolMessage, ResourceStrings.LoadingSymbolCaption) : null;
-            Natvis = new Natvis.Natvis(this, launchOptions.ShowDisplayString);
+            Natvis = new Natvis.Natvis(this, launchOptions.ShowDisplayString, configStore);
 
             // we do NOT have real Win32 process IDs, so we use a guid
             AD_PROCESS_ID pid = new AD_PROCESS_ID();
@@ -553,7 +554,7 @@ namespace Microsoft.MIDebugEngine
         public async Task Initialize(HostWaitLoop waitLoop, CancellationToken token)
         {
             bool success = false;
-            Natvis.Initialize(_launchOptions.VisualizerFile);
+            Natvis.Initialize(_launchOptions.VisualizerFiles);
             int total = 1;
 
             await this.WaitForConsoleDebuggerInitialize(token);
@@ -561,6 +562,9 @@ namespace Microsoft.MIDebugEngine
             try
             {
                 await this.MICommandFactory.EnableTargetAsyncOption();
+
+                await this.CheckCygwin(_launchOptions as LocalLaunchOptions);
+
                 List<LaunchCommand> commands = await GetInitializeCommands();
                 _childProcessHandler?.Enable();
 
@@ -642,9 +646,11 @@ namespace Microsoft.MIDebugEngine
                 commands.Add(new LaunchCommand("-gdb-set solib-absolute-prefix " + _launchOptions.AbsolutePrefixSOLibSearchPath));
             }
 
-            // On Windows ';' appears to correctly works as a path seperator and from the documentation, it is ':' on unix
-            string pathEntrySeperator = _launchOptions.UseUnixSymbolPaths ? ":" : ";";
-            string escapedSearchPath = string.Join(pathEntrySeperator, _launchOptions.GetSOLibSearchPath().Select(path => EscapeSymbolPath(path, ignoreSpaces: true)));
+            // On Windows ';' appears to correctly works as a path seperator and from the documentation, it is ':' on unix or cygwin envrionments
+            string pathEntrySeperator = (_launchOptions.UseUnixSymbolPaths || IsCygwin) ? ":" : ";";
+            string escapedSearchPath = string.Join(pathEntrySeperator, _launchOptions.GetSOLibSearchPath().Select(path => {
+                return EnsureProperPathSeparators(path, ignoreSpaces: true);
+            }));
             if (!string.IsNullOrWhiteSpace(escapedSearchPath))
             {
                 if (_launchOptions.DebuggerMIMode == MIMode.Gdb)
@@ -695,23 +701,15 @@ namespace Microsoft.MIDebugEngine
                 LocalLaunchOptions localLaunchOptions = _launchOptions as LocalLaunchOptions;
                 if (this.IsCoreDump)
                 {
-                    // Add executable information
-                    this.AddExecutablePathCommand(commands);
+                    // Load executable and core dump
+                    this.AddExecutableAndCorePathCommand(commands);
 
-                    // Important: this must occur after file-exec-and-symbols but before anything else.
+                    // Important: this must occur after executable load but before anything else.
                     this.AddGetTargetArchitectureCommand(commands);
-
-                    // Add core dump information (linux/mac does not support quotes around this path but spaces in the path do work)
-                    string coreDump = this.UseUnixPathSeparators ? _launchOptions.CoreDumpPath : this.EnsureProperPathSeparators(_launchOptions.CoreDumpPath);
-                    string coreDumpCommand = _launchOptions.DebuggerMIMode == MIMode.Lldb ? String.Concat("target create --core ", coreDump) : String.Concat("-target-select core ", coreDump);
-                    string coreDumpDescription = String.Format(CultureInfo.CurrentCulture, ResourceStrings.LoadingCoreDumpMessage, _launchOptions.CoreDumpPath);
-                    commands.Add(new LaunchCommand(coreDumpCommand, coreDumpDescription, ignoreFailures: false));
                 }
                 else if (_launchOptions.ProcessId.HasValue)
                 {
                     // This is an attach
-
-                    CheckCygwin(commands, localLaunchOptions);
 
                     if (this.MICommandFactory.Mode == MIMode.Gdb)
                     {
@@ -734,11 +732,14 @@ namespace Microsoft.MIDebugEngine
 
                     // check for remote
                     string destination = localLaunchOptions?.MIDebuggerServerAddress;
+                    bool useExtendedRemote = localLaunchOptions?.UseExtendedRemote ?? false;
                     if (!string.IsNullOrWhiteSpace(destination))
                     {
-                        commands.Add(new LaunchCommand("-target-select remote " + destination, string.Format(CultureInfo.CurrentCulture, ResourceStrings.ConnectingMessage, destination)));
+                        string remoteMode = useExtendedRemote ? "extended-remote" : "remote";
+                        commands.Add(new LaunchCommand($"-target-select {remoteMode} {destination}", string.Format(CultureInfo.CurrentCulture, ResourceStrings.ConnectingMessage, destination)));
                     }
-                    else // gdbserver is already attached when using LocalLaunchOptions
+                    // Allow attach after connection only in extended-remote mode
+                    if (useExtendedRemote || (!useExtendedRemote && string.IsNullOrWhiteSpace(destination)))
                     {
                         Action<string> failureHandler = (string miError) =>
                         {
@@ -757,6 +758,12 @@ namespace Microsoft.MIDebugEngine
                         commands.Add(new LaunchCommand("-target-attach " + _launchOptions.ProcessId.Value.ToString(CultureInfo.InvariantCulture), ignoreFailures: false, failureHandler: failureHandler));
                     }
 
+                    if (_launchOptions.PostRemoteConnectCommands != null) 
+                    {
+                        commands.AddRange(_launchOptions.PostRemoteConnectCommands);
+                    }
+
+
                     if (this.MICommandFactory.Mode == MIMode.Lldb)
                     {
                         // LLDB finishes attach in break mode. Gdb does finishes in run mode. Issue a continue in lldb to match the gdb behavior
@@ -771,7 +778,8 @@ namespace Microsoft.MIDebugEngine
 
                     if (!string.IsNullOrWhiteSpace(_launchOptions.WorkingDirectory))
                     {
-                        string escapedDir = this.EnsureProperPathSeparators(_launchOptions.WorkingDirectory);
+                        string escapedDir = this.EnsureProperPathSeparators(_launchOptions.WorkingDirectory, true);
+
                         commands.Add(new LaunchCommand("-environment-cd " + escapedDir));
                     }
 
@@ -783,8 +791,6 @@ namespace Microsoft.MIDebugEngine
                     {
                         commands.Add(new LaunchCommand("-gdb-set new-console on", ignoreFailures: true));
                     }
-
-                    CheckCygwin(commands, localLaunchOptions);
 
                     this.AddExecutablePathCommand(commands);
 
@@ -837,13 +843,18 @@ namespace Microsoft.MIDebugEngine
                         string destination = localLaunchOptions.MIDebuggerServerAddress;
                         if (!string.IsNullOrWhiteSpace(destination))
                         {
-                            commands.Add(new LaunchCommand("-target-select remote " + destination, string.Format(CultureInfo.CurrentCulture, ResourceStrings.ConnectingMessage, destination)));
-
+                            string remoteMode = localLaunchOptions.UseExtendedRemote ? "extended-remote" : "remote";
+                            commands.Add(new LaunchCommand($"-target-select {remoteMode} {destination}", string.Format(CultureInfo.CurrentCulture, ResourceStrings.ConnectingMessage, destination)));
                             if (localLaunchOptions.RequireHardwareBreakpoints && localLaunchOptions.HardwareBreakpointLimit > 0) {
                                 commands.Add(new LaunchCommand(string.Format(CultureInfo.InvariantCulture, "-interpreter-exec console \"set remote hardware-breakpoint-limit {0}\"", localLaunchOptions.HardwareBreakpointLimit.ToString(CultureInfo.InvariantCulture))));
                         }
                         }
 
+                    }
+
+                    if (_launchOptions.PostRemoteConnectCommands != null) 
+                    {
+                        commands.AddRange(_launchOptions.PostRemoteConnectCommands);
                     }
 
                     // Environment variables are set for the debuggee only with the modes that support that
@@ -857,40 +868,54 @@ namespace Microsoft.MIDebugEngine
             return commands;
         }
 
-        private void CheckCygwin(List<LaunchCommand> commands, LocalLaunchOptions localLaunchOptions)
+        /// <summary>
+        /// Checks to see if we are running Cygwin or not. 
+        /// </summary>
+        /// <param name="localLaunchOptions"></param>
+        /// <returns></returns>
+        private async Task CheckCygwin(LocalLaunchOptions localLaunchOptions)
         {
-            // If running locally on windows, determine if gdb is running from cygwin
-            if (localLaunchOptions != null && PlatformUtilities.IsWindows() && this.MICommandFactory.Mode == MIMode.Gdb)
+            // Checks to see if:
+            // 1. LocalLaunch Debugging
+            // 2. On Windows
+            // 3. With GDB
+            // 4. Does not have custom commands
+            // 5. Is not Android Debugging
+            // 6. Is not Dump Debugging
+            if (localLaunchOptions != null &&
+                PlatformUtilities.IsWindows() &&
+                this.MICommandFactory.Mode == MIMode.Gdb &&
+                localLaunchOptions.CustomLaunchSetupCommands == null &&
+                localLaunchOptions.DeviceAppLauncher == null &&
+                !this.IsCoreDump)
             {
+                string resultString = await ConsoleCmdAsync("show configuration", allowWhileRunning: false, ignoreFailures: true);
+
                 // mingw will not implement this command, but to be safe, also check if the results contains the string cygwin.
-                LaunchCommand lc = new LaunchCommand("show configuration", null, true, null, (string resStr) =>
+
+                // Look to see if configuration has "cywgin" within a word boundry.
+                // Also look for "msys" since it is a modified version of Cygwin.
+                if (Regex.IsMatch(resultString, "\\bcygwin\\b|\\bmsys\\b"))
                 {
-                    // Look to see if configuration has "cywgin" within a word boundry.
-                    // Also look for "msys" since it is a modified version of Cygwin.
-                    if (Regex.IsMatch(resStr, "\\bcygwin\\b|\\bmsys\\b"))
-                    {
-                        this.IsCygwin = true;
-                        this.CygwinFilePathMapper = new CygwinFilePathMapper(this);
+                    this.IsCygwin = true;
+                    this.CygwinFilePathMapper = new CygwinFilePathMapper(this);
 
-                        _engineTelemetry.SendWindowsRuntimeEnvironment(EngineTelemetry.WindowsRuntimeEnvironment.Cygwin);
-                    }
-                    else
-                    {
-                        this.IsMinGW = true;
-                        // Gdb on windows and not cygwin implies mingw
-                        _engineTelemetry.SendWindowsRuntimeEnvironment(EngineTelemetry.WindowsRuntimeEnvironment.MinGW);
-                    }
-
-                    return Task.FromResult(0);
-                });
-                commands.Add(lc);
+                    _engineTelemetry.SendWindowsRuntimeEnvironment(EngineTelemetry.WindowsRuntimeEnvironment.Cygwin);
+                }
+                else
+                {
+                    this.IsMinGW = true;
+                    // Gdb on windows and not cygwin implies mingw
+                    _engineTelemetry.SendWindowsRuntimeEnvironment(EngineTelemetry.WindowsRuntimeEnvironment.MinGW);
+                }
             }
         }
 
         private void AddExecutablePathCommand(IList<LaunchCommand> commands)
         {
-            string exe = this.EnsureProperPathSeparators(_launchOptions.ExePath);
-            string description = string.Format(CultureInfo.CurrentCulture, ResourceStrings.LoadingSymbolMessage, _launchOptions.ExePath);
+            string exe = this.EnsureProperPathSeparators(_launchOptions.ExePath, true);
+
+            string description = string.Format(CultureInfo.CurrentCulture, ResourceStrings.LoadingSymbolMessage, exe);
 
             Action<string> failureHandler = (string miError) =>
             {
@@ -899,6 +924,30 @@ namespace Microsoft.MIDebugEngine
             };
 
             commands.Add(new LaunchCommand("-file-exec-and-symbols " + exe, description, ignoreFailures: false, failureHandler: failureHandler));
+        }
+
+        private void AddExecutableAndCorePathCommand(IList<LaunchCommand> commands)
+        {
+            string command;
+            if (_launchOptions.DebuggerMIMode == MIMode.Lldb)
+            {
+                // LLDB requires loading the executable and the core into the same target, using one command. Quotes in the path are supported.
+                string exePath = this.EnsureProperPathSeparators(_launchOptions.ExePath, true);
+                string corePath = this.EnsureProperPathSeparators(_launchOptions.CoreDumpPath, true);
+                command = String.Concat("file ", exePath, " -c ", corePath);
+            }
+            else
+            {
+                // GDB requires loading the executable and core separately.
+                // Note: Linux/mac do not support quotes around this path, but spaces in the path do work.
+                this.AddExecutablePathCommand(commands);
+                string corePathNoQuotes = this.EnsureProperPathSeparators(_launchOptions.CoreDumpPath, true, true);
+                command = String.Concat("-target-select core ", corePathNoQuotes);
+            }
+
+            // Load core dump information
+            string description = String.Format(CultureInfo.CurrentCulture, ResourceStrings.LoadingCoreDumpMessage, _launchOptions.CoreDumpPath);
+            commands.Add(new LaunchCommand(command, description, ignoreFailures: false));
         }
 
         private void DetermineAndAddExecutablePathCommand(IList<LaunchCommand> commands, UnixShellPortLaunchOptions launchOptions)
@@ -1018,6 +1067,8 @@ namespace Microsoft.MIDebugEngine
             {
                 _waitDialog.Dispose();
             }
+
+            Natvis?.Dispose();
 
             Logger.Flush();
         }
@@ -1178,6 +1229,10 @@ namespace Microsoft.MIDebugEngine
                     bplist.AddRange(bkpt);
                     _callback.OnBreakpoint(thread, bplist.AsReadOnly());
                 }
+                else if (ExceptionManager.TryGetExceptionBreakpoint(bkptno, addr, frame, out string exceptionName, out string description, out Guid exceptionCategoryGuid)) // exception breakpoint hit
+                {
+                    _callback.OnException(thread, exceptionName, description, 0, exceptionCategoryGuid, ExceptionBreakpointStates.BreakThrown);
+                }
                 else if (!this.EntrypointHit)
                 {
                     this.EntrypointHit = true;
@@ -1199,8 +1254,20 @@ namespace Microsoft.MIDebugEngine
                     }
                     else
                     {
-                        // not one of our breakpoints, so stop with a message
-                        _callback.OnException(thread, "Unknown breakpoint", "", 0);
+                        // This is not one of our breakpoints. Possibly it was set by the user
+                        // via "-exec break ...", so display the available information.
+                        switch (_launchOptions.UnknownBreakpointHandling)
+                        {
+                            case MICore.Json.LaunchOptions.UnknownBreakpointHandling.Throw:
+                                string desc = String.Format(CultureInfo.CurrentCulture,
+                                                            ResourceStrings.UnknownBreakpoint,
+                                                            bkptno, addr);
+                                _callback.OnException(thread, desc, "", 0);
+                                break;
+                            case MICore.Json.LaunchOptions.UnknownBreakpointHandling.Stop:
+                                _callback.OnBreakpoint(thread, new ReadOnlyCollection<object>(new AD7BoundBreakpoint[] { }));
+                                break;
+                        }
                     }
                 }
             }
@@ -1228,8 +1295,40 @@ namespace Microsoft.MIDebugEngine
                     }
                     else
                     {
-                        // not one of our breakpoints, so stop with a message
-                        _callback.OnException(thread, "Unknown watchpoint", "", 0);
+                        // This is not one of our watchpoints, so stop with a message. Possibly it
+                        // was set by the user via "-exec watch ...", so display the available
+                        // information.
+                        string desc = string.Empty;
+                        string exp = wpt.TryFindString("exp");
+                        if (string.IsNullOrEmpty(exp)) {
+                            desc = String.Format(CultureInfo.CurrentCulture,
+                                                 ResourceStrings.UnknownWatchpoint,
+                                                 bkptno, addr);
+                        }
+                        else
+                        {
+                            desc = String.Format(CultureInfo.CurrentCulture,
+                                                 ResourceStrings.UnknownWatchpointWithExpression,
+                                                 bkptno, exp, addr);
+                        }
+                        var value = results.Results.TryFind<TupleValue>("value");
+                        if (value != null) {
+                            string oldValue = value.TryFindString("old");
+                            if (!string.IsNullOrEmpty(oldValue)) {
+                                desc += "\n";
+                                desc += String.Format(CultureInfo.CurrentCulture,
+                                                      ResourceStrings.UnknownWatchpointOldValue,
+                                                      oldValue);
+                            }
+                            string newValue = value.TryFindString("new");
+                            if (!string.IsNullOrEmpty(newValue)) {
+                                desc += "\n";
+                                desc += String.Format(CultureInfo.CurrentCulture,
+                                                      ResourceStrings.UnknownWatchpointNewValue,
+                                                      newValue);
+                            }
+                        }
+                        _callback.OnException(thread, desc, "", 0);
                     }
                 }
             }
@@ -1244,21 +1343,25 @@ namespace Microsoft.MIDebugEngine
                 if (!string.IsNullOrEmpty(resultVar))
                 {
                     ReturnValue = new VariableInformation("$ReturnValue", resultVar, cxt, Engine, (AD7Thread)thread.Client, isParameter: false);
-                    await ReturnValue.Eval();
+                    await ReturnValue.Eval(radix: 0);
                 }
                 _callback.OnStepComplete(thread);
             }
             else if (reason == "signal-received")
             {
                 string name = results.Results.TryFindString("signal-name");
+                AsyncBreakSignal signal = MICommandFactory.GetAsyncBreakSignal(results.Results);
+                bool isAsyncBreak = signal == AsyncBreakSignal.SIGTRAP || (IsUsingExecInterrupt && signal == AsyncBreakSignal.SIGINT);
                 if ((name == "SIG32") || (name == "SIG33"))
                 {
                     // we are going to ignore these (Sigma) signals for now
                     CmdContinueAsyncConditional(breakRequest);
                 }
-                else if (MICommandFactory.IsAsyncBreakSignal(results.Results))
+                else if (isAsyncBreak)
                 {
                     _callback.OnAsyncBreakComplete(thread);
+                    // Reset flag for real async break
+                    IsUsingExecInterrupt = false;
                 }
                 else
                 {
@@ -1402,13 +1505,22 @@ namespace Microsoft.MIDebugEngine
             get { return _worker; }
         }
 
+        private readonly char[] RemotePathSeperators = new char[] { ' ', '\'' };
+        private readonly char[] LocalPathSeperators = new char[] { ' ' };
+
         /// <summary>
-        /// Use to ensure path separators are correct for files that exist on the target debugger's machine.
-        /// If you are debugging on Windows to a remote instance of gdb or gdbserver, it will update it to Unix path separators.
+        /// Use to ensure path separators are correct for files we are setting for GDB.
+        /// If you are debugging on Windows to a remote instance of gdb or gdbserver, it will update it to Unix path separators that exist on the target debugger's machine.
+        /// If you are debugging on Windows locally, it will escape the Windows path seperator.
+        /// If you are debugging on Windows locally with Cygwin, we will update it to use unix path seperators and resolve the cygwin path.
         /// </summary>
-        internal string EnsureProperPathSeparators(string path)
+        internal string EnsureProperPathSeparators(string path, bool isRemote = false, bool ignoreSpaces = false)
         {
-            if (this.UseUnixPathSeparators)
+            if (IsCygwin)
+            {
+                path = CygwinFilePathMapper.MapWindowsToCygwin(path);
+            }
+            else if (this.UseUnixPathSeparators)
             {
                 path = PlatformUtilities.WindowsPathToUnixPath(path);
             }
@@ -1418,30 +1530,9 @@ namespace Microsoft.MIDebugEngine
                 path = path.Replace(@"\", @"\\");
             }
 
-            if (path.IndexOfAny(new char[] { ' ', '\'' }) != -1)
-            {
-                path = '"' + path + '"';
-            }
-            return path;
-        }
+            char[] pathSeperator = isRemote ? RemotePathSeperators : LocalPathSeperators;
 
-        /// <summary>
-        /// This method should be used to escape paths that are used by GDB (and NOT gdbserver) locally. 
-        /// Any path that gdbserver would use in remote server scenarios should use EnsureProperPathSeparators instead.
-        /// </summary>
-        internal string EscapeSymbolPath(string path, bool ignoreSpaces = false)
-        {
-            if (this.UseUnixSymbolPaths)
-            {
-                path = PlatformUtilities.WindowsPathToUnixPath(path);
-            }
-            else
-            {
-                path = path.Trim();
-                path = path.Replace(@"\", @"\\");
-            }
-
-            if (!ignoreSpaces && path.IndexOf(' ') != -1)
+            if (!ignoreSpaces && path.IndexOfAny(pathSeperator) != -1)
             {
                 path = '"' + path + '"';
             }
@@ -1919,8 +2010,26 @@ namespace Microsoft.MIDebugEngine
         //NOTE: eval is not called
         public async Task<List<ArgumentList>> GetParameterInfoOnly(AD7Thread thread, bool values, bool types, uint low, uint high)
         {
-            // If values are requested, request simple values, otherwise we'll use -var-create to get the type of argument it is.
-            var frames = await MICommandFactory.StackListArguments(values ? PrintValue.SimpleValues : PrintValue.NoValues, thread.Id, low, high);
+            PrintValue printValue = values ? PrintValue.SimpleValues : PrintValue.NoValues;
+            if (types && !values)
+            {
+                // We want types but not values. There is no PrintValue option for this, but if
+                // SimpleValues excludes printing values for references to compound types, then
+                // the fastest approach is to use SimpleValues (and ignore the values).
+                // Otherwise, the potential performance penalty of fetching values for
+                // references to compound types is too high, so use NoValues and follow up with
+                // -var-create to get the types.
+                if (!_simpleValuesExcludesRefTypes.HasValue)
+                {
+                    _simpleValuesExcludesRefTypes  = await this.MICommandFactory.SupportsSimpleValuesExcludesRefTypes();
+                }
+                if (_simpleValuesExcludesRefTypes.Value)
+                {
+                    printValue = PrintValue.SimpleValues;
+                }
+            }
+
+            var frames = await MICommandFactory.StackListArguments(printValue, thread.Id, low, high);
             List<ArgumentList> parameters = new List<ArgumentList>();
 
             foreach (var f in frames)
@@ -2247,7 +2356,7 @@ namespace Microsoft.MIDebugEngine
                             continue;   // match didn't end at a directory separator, not actually a match
                         }
                         compilerSrc = Path.Combine(e.CompileTimePath, file);    // map to the compiled location
-                        if (compilerSrc.IndexOf('\\') > 0)
+                        if (compilerSrc.IndexOf('\\') != -1)
                         {
                             compilerSrc = PlatformUtilities.WindowsPathToUnixPath(compilerSrc); // use Unix notation for the compiled path
                         }

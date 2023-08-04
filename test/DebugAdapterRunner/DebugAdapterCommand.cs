@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -130,6 +131,19 @@ namespace DebugAdapterRunner
             return messageBuffer;
         }
 
+        private struct ResponsePair
+        {
+            /// <summary>
+            /// Boolean to indicate if this response has a match.
+            /// </summary>
+            public bool FoundMatch { get; set; }
+
+            /// <summary>
+            /// The response
+            /// </summary>
+            public object Response { get; set; }
+        }
+
         public override void Run(DebugAdapterRunner runner)
         {
             // Send the request
@@ -138,12 +152,44 @@ namespace DebugAdapterRunner
             runner.DebugAdapter.StandardInput.Write(request);
 
             // Process + validate responses
-            List<object> responseList = new List<object>();
+            List<ResponsePair> responseList = new List<ResponsePair>();
             int currentExpectedResponseIndex = 0;
+            int previousExpectedResponseIndex = 0;
 
             // Loop until we have received as many expected responses as expected
             while (currentExpectedResponseIndex < this.ExpectedResponses.Count)
             {
+                // Check if previous messages contained the expected response
+                if (previousExpectedResponseIndex != currentExpectedResponseIndex)
+                {
+                    DebugAdapterResponse expected = this.ExpectedResponses[currentExpectedResponseIndex];
+                    // Only search responses in history list if we can ignore the response order.
+                    if (expected.IgnoreResponseOrder)
+                    {
+                        for (int i = 0; i < responseList.Count; i++)
+                        {
+                            ResponsePair responsePair = responseList[i];
+                            // Make sure we have not seen this response and check to see if it the response we are expecting.
+                            if (!responsePair.FoundMatch && Utils.CompareObjects(expected.Response, responsePair.Response, expected.IgnoreOrder))
+                            {
+                                expected.Match = responsePair.Response;
+                                responsePair.FoundMatch = true;
+                                break;
+                            }
+                        }
+
+                        // We found an expected response from a previous response.
+                        // Continue to next expectedResponse.
+                        if (expected.Match != null)
+                        {
+                            currentExpectedResponseIndex++;
+                            continue;
+                        }
+                    }
+                }
+
+                previousExpectedResponseIndex = currentExpectedResponseIndex;
+
                 string receivedMessage = null;
                 Exception getMessageExeception = null;
                 try
@@ -173,6 +219,7 @@ namespace DebugAdapterRunner
                     }
 
                     string messageStart;
+                    string messageSuffix = string.Empty;
                     if (runner.DebugAdapter.HasExited)
                     {
                         if (runner.HasAsserted())
@@ -181,7 +228,21 @@ namespace DebugAdapterRunner
                         }
                         else
                         {
-                            messageStart = string.Format(CultureInfo.CurrentCulture, "The debugger process has exited with code '{0}' without sending all expected responses.", runner.DebugAdapter.ExitCode);
+                            int exitCode = runner.DebugAdapter.ExitCode;
+                            messageStart = string.Format(CultureInfo.CurrentCulture, "The debugger process has exited with code '{0}' without sending all expected responses.", exitCode);
+
+                            // OSX will normally write out nice crash reports that we can include if the debug adapter crashes.
+                            // Try to include them in the exception.
+                            // NOTE that OSX uses exit code 128+<signal_number> if there is a crash. The highest documented signal
+                            // number is 31 (User defined signal 2). See 'man signal' for more numbers.
+                            // The most common is 139 (SigSegV).
+                            if (exitCode > 128 && exitCode <= 128+31 && RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                            {
+                                if (TryFindOSXCrashReport(runner, out string crashReport))
+                                {
+                                    messageSuffix = "\n\nCrash report:\n" + crashReport;
+                                }
+                            }
                         }
                     }
                     else if (getMessageExeception is TimeoutException)
@@ -200,7 +261,19 @@ namespace DebugAdapterRunner
                         messageStart = "Exception while reading message from debug adpter. " + getMessageExeception.Message;
                     }
 
-                    string expectedResponseText = JsonConvert.SerializeObject(this.ExpectedResponses[currentExpectedResponseIndex].Response);
+                    string expectedResponseText = string.Empty;
+                    for (int i = 0; i < ExpectedResponses.Count; i++)
+                    {
+                        string status;
+                        if (i < currentExpectedResponseIndex)
+                            status = "Found";
+                        else if (i == currentExpectedResponseIndex)
+                            status = "Not Found";
+                        else
+                            status = "Not searched yet";
+                        expectedResponseText += string.Format(CultureInfo.CurrentCulture, "{0}. {1}: {2}\n", (i + 1), status, JsonConvert.SerializeObject(ExpectedResponses[i].Response));
+                    }
+
                     string actualResponseText = string.Empty;
 
                     for (int i = 0; i < responseList.Count; i++)
@@ -208,8 +281,8 @@ namespace DebugAdapterRunner
                         actualResponseText += string.Format(CultureInfo.CurrentCulture, "{0}. {1}\n", (i + 1), JsonConvert.SerializeObject(responseList[i]));
                     }
 
-                    string errorMessage = string.Format(CultureInfo.CurrentCulture, "{0}\nExpected = {1}\nActual Responses =\n{2}",
-                        messageStart, expectedResponseText, actualResponseText);
+                    string errorMessage = string.Format(CultureInfo.CurrentCulture, "{0}\nExpected =\n{1}\nActual Responses =\n{2}{3}",
+                        messageStart, expectedResponseText, actualResponseText, messageSuffix);
 
                     throw new DARException(errorMessage);
                 }
@@ -221,7 +294,6 @@ namespace DebugAdapterRunner
                     if (dispatcherMessage.type == "event")
                     {
                         DispatcherEvent dispatcherEvent = JsonConvert.DeserializeObject<DispatcherEvent>(receivedMessage);
-                        responseList.Add(dispatcherEvent);
 
                         if (dispatcherEvent.eventType == "stopped")
                         {
@@ -234,11 +306,16 @@ namespace DebugAdapterRunner
                             expected.Match = dispatcherEvent;
                             currentExpectedResponseIndex++;
                         }
+
+                        responseList.Add(new ResponsePair()
+                        {
+                            FoundMatch = expected.Match != null,
+                            Response = dispatcherEvent
+                        });
                     }
                     else if (dispatcherMessage.type == "response")
                     {
                         DispatcherResponse dispatcherResponse = JsonConvert.DeserializeObject<DispatcherResponse>(receivedMessage);
-                        responseList.Add(dispatcherResponse);
 
                         var expected = this.ExpectedResponses[currentExpectedResponseIndex];
                         if (Utils.CompareObjects(expected.Response, dispatcherResponse, expected.IgnoreOrder))
@@ -246,6 +323,12 @@ namespace DebugAdapterRunner
                             expected.Match = dispatcherResponse;
                             currentExpectedResponseIndex++;
                         }
+
+                        responseList.Add(new ResponsePair()
+                        {
+                            FoundMatch = expected.Match != null,
+                            Response = dispatcherResponse
+                        });
                     }
                     else if (dispatcherMessage.type == "request")
                     {
@@ -263,6 +346,57 @@ namespace DebugAdapterRunner
                     throw;
                 }
             }
+        }
+
+        private static bool TryFindOSXCrashReport(DebugAdapterRunner runner, out string crashReport)
+        {
+            crashReport = null;
+
+            string homeDir = Environment.GetEnvironmentVariable("HOME");
+            if (String.IsNullOrEmpty(homeDir))
+                return false;
+
+            string crashReportDirectory = Path.Combine(homeDir, "Library/Logs/DiagnosticReports/");
+            if (!Directory.Exists(crashReportDirectory))
+                return false;
+
+            string debugAdapterFilePath = runner.DebugAdapter?.StartInfo?.FileName;
+            if (String.IsNullOrEmpty(debugAdapterFilePath))
+                return false;
+            string debugAdapterFileName = Path.GetFileName(debugAdapterFilePath);
+
+            string crashReportPath = null;
+            for (int retry = 0; retry < 15; retry++)
+            {
+                IEnumerable<string> crashReportFiles = Directory.EnumerateFiles(crashReportDirectory, debugAdapterFileName + "*")
+                    .Select(name => Path.Combine(crashReportDirectory, name));
+
+                (string Path, DateTime CreationTime) latestCrashReport = crashReportFiles
+                    .Select<string, (string Path, DateTime CreationTime)>(path => new(path, File.GetCreationTime(path)))
+                    .OrderByDescending(tuple => tuple.CreationTime)
+                    .FirstOrDefault();
+                if (latestCrashReport.Path == null ||
+                    latestCrashReport.CreationTime < runner.StartTime)
+                {
+                    // It can take a little while for the crash report to get written, so wait a second and try again
+                    // NOTE: From what I have seen, crash logs are written in one shot, so, unless we get very unlucky,
+                    // we should get the whole thing.
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                crashReportPath = latestCrashReport.Path;
+                break;
+            }
+
+            if (crashReportPath == null)
+            {
+                // Crash log was never found
+                return false;
+            }
+
+            crashReport = File.ReadAllText(crashReportPath);
+            return true;
         }
     }
 }

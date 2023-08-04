@@ -11,6 +11,7 @@ using System.Collections;
 using System.Threading.Tasks;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Microsoft.DebugEngineHost;
 
 namespace MICore
 {
@@ -158,6 +159,12 @@ namespace MICore
 
         public override void Close()
         {
+            if (_process != null)
+            {
+                _process.EnableRaisingEvents = false;
+                _process.Exited -= OnProcessExit;
+            }
+
             if (_writer != null)
             {
                 try
@@ -167,6 +174,15 @@ namespace MICore
                 catch (Exception)
                 {
                     // Ignore errors if logout couldn't be written
+                }
+
+                try
+                {
+                    _writer?.Close();
+                }
+                catch (IOException)
+                {
+                    // There are IO Issues with the writer, ignore since its shutting down.
                 }
             }
 
@@ -181,8 +197,6 @@ namespace MICore
 
             if (_process != null)
             {
-                _process.EnableRaisingEvents = false;
-                _process.Exited -= OnProcessExit;
                 if (_killOnClose && !_process.HasExited)
                 {
                     try
@@ -356,7 +370,7 @@ namespace MICore
             Process proc = new Process();
             proc.StartInfo.FileName = _pipePath;
             proc.StartInfo.Arguments = PipeLaunchOptions.ReplaceDebuggerCommandToken(_cmdArgs, commandText, true);
-            Logger.WriteLine("Running process {0} {1}", proc.StartInfo.FileName, proc.StartInfo.Arguments);
+            Logger.WriteLine(LogLevel.Verbose, "Running process {0} {1}", proc.StartInfo.FileName, proc.StartInfo.Arguments);
             proc.StartInfo.WorkingDirectory = System.IO.Path.GetDirectoryName(_pipePath);
             proc.EnableRaisingEvents = false;
             proc.StartInfo.RedirectStandardInput = false;

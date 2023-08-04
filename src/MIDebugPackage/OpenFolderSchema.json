@@ -113,12 +113,20 @@
                 "type": "string",
                 "description": "Network address of the MI-enabled debugger server to connect to. \nExample: localhost:1234."
               },
+              "useExtendedRemote": {
+                "type": "boolean",
+                "description": "If true, use gdb extended-remote mode to connect to gdbserver."
+              },
               "setupCommands": {
                 "type": "array",
                 "description": "One or more GDB/LLDB commands to execute in order to setup the underlying debugger. \nExample: \"setupCommands\": [ { \"text\": \"-enable-pretty-printing\", \"description\": \"Enable GDB pretty printing\", \"ignoreFailures\": true }].",
                 "items": {
                   "$ref": "#/definitions/cpp_schema/definitions/launchSetupCommands"
                 }
+              },
+              "postRemoteConnectCommands": {
+                "type": "array",
+                "description": "One or more commands to execute after the connection has been made, in order to set up the remote connection."
               },
               "customLaunchSetupCommands": {
                 "type": "array",
@@ -177,6 +185,14 @@
               },
               "hardwareBreakpoints": {
                 "$ref": "#/definitions/cpp_schema/definitions/hardwareBreakpointsOptions"
+              },
+              "unknownBreakpointHandling": {
+                "type": "string",
+                "enum": [
+                  "throw",
+                  "stop"
+                ],
+                "description": "Controls how breakpoints set externally (usually via raw GDB commands) are handled when hit.\nAllowed values are \"throw\", which acts as if an exception was thrown by the application, and \"stop\", which only pauses the debug session. The default value is \"throw\"."
               }
             },
             "definitions": {

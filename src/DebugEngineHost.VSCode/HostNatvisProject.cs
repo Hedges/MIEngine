@@ -9,9 +9,15 @@ namespace Microsoft.DebugEngineHost
     {
         public delegate void NatvisLoader(string path);
 
-        public static void FindNatvisInSolution(NatvisLoader loader)
+        public static void FindNatvis(NatvisLoader loader)
         {
             // In-solution natvis is not supported for VS Code now, so do nothing.
+        }
+
+        public static IDisposable WatchNatvisOptionSetting(HostConfigurationStore configStore, ILogChannel natvisLogger)
+        {
+            // VS Code does not have a registry setting for Natvis Diagnostics
+            return null;
         }
 
         public static string FindSolutionRoot()

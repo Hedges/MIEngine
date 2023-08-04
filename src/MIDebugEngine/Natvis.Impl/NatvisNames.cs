@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using MICore;
 using System.Globalization;
+using Microsoft.DebugEngineHost;
 
 namespace Microsoft.MIDebugEngine.Natvis
 {
@@ -38,10 +39,10 @@ namespace Microsoft.MIDebugEngine.Natvis
                     @"^(signed\s+char|unsigned\s+char|char16_t|char32_t|wchar_t|char|"
                     + @"signed\s+short\s+int|signed\s+short|unsigned\s+short\s+int|unsigned\s+short|short\s+int|short|"
                     + @"signed\s+int|unsigned\s+int|int|"
-                    + @"signed\s+long\s+int|unsigned\s+long\s+int|long\s+int|long|"
-                    + @"signed\s+long\s+long\s+int|long\s+long\s+int|unsigned\s+long\s+long\s+int|long\s+long"
+                    + @"signed\s+long\s+int|unsigned\s+long\s+int|"
+                    + @"signed\s+long\s+long\s+int|long\s+long\s+int|long\s+int|unsigned\s+long\s+long\s+int|long\s+long"
                     + @"float|double|"
-                    + @"long\s+double|bool|void)\b" // matches prefixes ending in '$' (e.g. void$Foo), these are checked for below
+                    + @"long\s+double|long|bool|void)\b" // matches prefixes ending in '$' (e.g. void$Foo), these are checked for below
                 );
         private static readonly TypeName s_any = new TypeName()
         {
@@ -138,7 +139,7 @@ namespace Microsoft.MIDebugEngine.Natvis
         /// </summary>
         /// <param name="fullyQualifiedName"></param>
         /// <returns></returns>
-        public static TypeName Parse(string fullyQualifiedName, Logger logger)
+        public static TypeName Parse(string fullyQualifiedName, ILogChannel logger)
         {
             if (String.IsNullOrEmpty(fullyQualifiedName))
                 return null;
@@ -146,7 +147,7 @@ namespace Microsoft.MIDebugEngine.Natvis
             TypeName t = MatchTypeName(fullyQualifiedName.Trim(), out rest);
             if (!String.IsNullOrWhiteSpace(rest))
             {
-                logger.WriteLine("Natvis failed to parse typename: " + fullyQualifiedName);
+                logger.WriteLine(LogLevel.Error, "Natvis failed to parse typename: {0}", fullyQualifiedName);
                 return null;
             }
             return t;

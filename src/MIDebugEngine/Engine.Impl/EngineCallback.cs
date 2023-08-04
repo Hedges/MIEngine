@@ -31,7 +31,7 @@ namespace Microsoft.MIDebugEngine
             Guid riidEvent = new Guid(iidEvent);
             if (!(eventObject is AD7OutputDebugStringEvent))
             {
-                _engine.Logger.WriteLine("Send Event {0}", eventObject.GetType().Name);
+                _engine.Logger.WriteLine(LogLevel.Verbose, "Send Event {0}", eventObject.GetType().Name);
             }
             EngineUtils.RequireOk(eventObject.GetAttributes(out attributes));
             EngineUtils.RequireOk(_eventCallback.Event(_engine, null, program, thread, eventObject, ref riidEvent, attributes));
@@ -199,9 +199,7 @@ namespace Microsoft.MIDebugEngine
             // should notify each bound breakpoint that it has been hit and evaluate conditions here.
             // The sample engine does not support these features.
 
-            AD7BoundBreakpointsEnum boundBreakpointsEnum = new AD7BoundBreakpointsEnum(boundBreakpoints);
-
-            AD7BreakpointEvent eventObject = new AD7BreakpointEvent(boundBreakpointsEnum);
+            AD7BreakpointEvent eventObject = new AD7BreakpointEvent(boundBreakpoints);
 
             AD7Thread ad7Thread = (AD7Thread)thread.Client;
             Send(eventObject, AD7BreakpointEvent.IID, ad7Thread);

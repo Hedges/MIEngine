@@ -323,17 +323,6 @@ namespace Microsoft.MIDebugEngine
             }
             else
             {
-                if ((enum_BP_LOCATION_TYPE)_bpRequestInfo.bpLocation.bpLocationType == enum_BP_LOCATION_TYPE.BPLT_DATA_STRING)
-                {
-                    lock (_engine.DebuggedProcess.DataBreakpointVariables)
-                    {
-                        string addressName = HostMarshal.GetDataBreakpointStringForIntPtr(_bpRequestInfo.bpLocation.unionmember3);
-                        if (!_engine.DebuggedProcess.DataBreakpointVariables.Contains(addressName)) // might need to expand condition
-                        {
-                            _engine.DebuggedProcess.DataBreakpointVariables.Add(addressName);
-                        }
-                    }
-                }
                 return Constants.S_OK;
             }
         }
@@ -364,7 +353,25 @@ namespace Microsoft.MIDebugEngine
                 }
                 else
                 {
-                    bindResult = await PendingBreakpoint.Bind(_address, _size, _engine.DebuggedProcess, _condition, this);
+                    try
+                    {
+                        bindResult = await PendingBreakpoint.Bind(_address, _size, _engine.DebuggedProcess, _condition, this);
+
+                        lock (_engine.DebuggedProcess.DataBreakpointVariables)
+                        {
+                            string address = AddressId ?? _address;
+                            if (!_engine.DebuggedProcess.DataBreakpointVariables.Contains(address)) // might need to expand condition
+                            {
+                                _engine.DebuggedProcess.DataBreakpointVariables.Add(address);
+                            }
+                        }
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        // There was an error binding at the address with the specified size. This could happen if the size is greater
+                        // than the max size a data bp can watch.
+                        bindResult = new PendingBreakpoint.BindResult(ex.Message);
+                    }
                 }
 
                 lock (_boundBreakpoints)

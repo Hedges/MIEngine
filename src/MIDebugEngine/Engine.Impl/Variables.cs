@@ -60,7 +60,7 @@ namespace Microsoft.MIDebugEngine
         internal async Task<VariableInformation> CreateMIDebuggerVariable(ThreadContext ctx, AD7Engine engine, AD7Thread thread)
         {
             VariableInformation vi = new VariableInformation(Name, Name, ctx, engine, thread, IsParameter);
-            await vi.Eval();
+            await vi.Eval(engine.CurrentRadix());
             return vi;
         }
     }
@@ -213,7 +213,7 @@ namespace Microsoft.MIDebugEngine
             : this(ctx, engine, thread)
         {
             // strip off formatting string
-            _strippedName = StripFormatSpecifier(expr, out _format);
+            _strippedName = ProcessFormatSpecifiers(expr, out _format);
             Name = displayName;
             IsParameter = isParameter;
             _parent = null;
@@ -225,7 +225,7 @@ namespace Microsoft.MIDebugEngine
             : this(parent.ThreadContext, engine, parent.Client)
         {
             // strip off formatting string
-            _strippedName = StripFormatSpecifier(expr, out _format);
+            _strippedName = ProcessFormatSpecifiers(expr, out _format);
             Name = displayName ?? expr;
             _parent = parent;
             VariableNodeType = NodeType.Synthetic;
@@ -236,7 +236,7 @@ namespace Microsoft.MIDebugEngine
             : this(parent._ctx, parent._engine, parent.Client)
         {
             // strip off formatting string
-            _strippedName = StripFormatSpecifier(expr, out _format);
+            _strippedName = ProcessFormatSpecifiers(expr, out _format);
             Name = expr;
             VariableNodeType = NodeType.Root;
         }
@@ -337,9 +337,19 @@ namespace Microsoft.MIDebugEngine
         private ThreadContext _ctx;
         private bool _attribsFetched;
         private bool _isReadonly;
+        /// <summary>
+        /// This callback is used when we need to call into the engine for additional information for
+        /// the format specifier.
+        ///
+        /// <param name="threadId">The threadId to use when calling the engine.</param>
+        /// <param name="frameLevel">The frameLevel to use when calling the engine.</param>
+        /// <returns>The expression to send to the engine</returns>
+        /// </summary>
+        private delegate Task<string> DeferedFormatExpression(int threadId, uint frameLevel);
+        private DeferedFormatExpression _deferedFormatExpression;
+        private IVariableInformation _parent;
         private string _format;
         private string _strippedName;  // "Name" stripped of format specifiers
-        private IVariableInformation _parent;
         private string _fullname;
 
         public enum NodeType
@@ -365,9 +375,15 @@ namespace Microsoft.MIDebugEngine
 
         private static Regex s_isFunction = new Regex(@".+\(.*\).*");
 
-        private string StripFormatSpecifier(string exp, out string formatSpecifier)
+        private string ProcessFormatSpecifiers(string exp, out string formatSpecifier)
         {
             formatSpecifier = null; // will be used with -var-set-format
+
+            if (EngineUtils.IsConsoleExecCmd(exp, out string _, out string _))
+            {
+                return exp;
+            }
+
             int lastComma = exp.LastIndexOf(',');
             if (lastComma <= 0)
                 return exp;
@@ -422,16 +438,62 @@ namespace Microsoft.MIDebugEngine
             }
 
             // array with static size
-            // TODO: could return '(T(*)[n])(exp)' but requires T
             var m = Regex.Match(trimmed, @"^\[?(\d+)\]?$");
             if (m.Success)
-                return exp.Substring(0, lastComma);
+            {
+                string count = m.Groups[1].Value; // (\d+) capture group
+                string expr = exp.Substring(0, lastComma);
+
+                if (_engine.DebuggedProcess.MICommandFactory.Mode == MIMode.Gdb)
+                {
+                    // return *<expression>@<count> which is only supported in GDB
+                    return FormattableString.Invariant($"*{expr}@{count}");
+                }
+                else
+                {
+                    _deferedFormatExpression = async (int threadId, uint frameLevel) =>
+                    {
+                        string derefType = await GetDereferencedTypeStringAsync(expr, threadId, frameLevel);
+
+                        if (!string.IsNullOrEmpty(derefType))
+                        {
+                            // Cast 'exp' to a pointer of an array of type 'T' with size 'n' with '*(T(*)[n])(exp)'
+                            return FormattableString.Invariant($"*({derefType}(*)[{count}])({expr})");
+                        }
+
+                        return string.Empty;
+                    };
+
+                    return expr;
+                }
+            }
 
             // array with dynamic size
             if (Regex.Match(trimmed, @"^\[([a-zA-Z_][a-zA-Z_\d]*)\]$").Success)
                 return exp.Substring(0, lastComma);
 
             return exp;
+        }
+
+        private async Task<string> GetDereferencedTypeStringAsync(string expr, int threadId, uint frameLevel)
+        {
+            // TODO: Should we error if the current type is not a pointer type?
+
+            // Evaluates: *expr
+            Results results = await _engine.DebuggedProcess.MICommandFactory.VarCreate($"*({expr})", threadId, frameLevel, 0, ResultClass.None);
+
+            if (results.ResultClass == ResultClass.done)
+            {
+                string varName = results.TryFindString("name");
+                if (!String.IsNullOrWhiteSpace(varName))
+                {
+                    // Remove the variable we created as we don't track it.
+                    await _engine.DebuggedProcess.MICommandFactory.VarDelete(varName);
+                }
+
+                return results.TryFindString("type");
+            }
+            return null;
         }
 
         public void AsyncEval(IDebugEventCallback2 pExprCallback)
@@ -446,9 +508,10 @@ namespace Microsoft.MIDebugEngine
                 engineCallback = _engine.Callback;
             }
 
+            uint radix = _engine.CurrentRadix();
             Task evalTask = Task.Run(async () =>
             {
-                await Eval();
+                await Eval(radix);
             });
 
             Action<Task> onComplete = (Task t) =>
@@ -473,9 +536,10 @@ namespace Microsoft.MIDebugEngine
 
         public void SyncEval(enum_EVALFLAGS dwFlags = 0, DAPEvalFlags dwDAPFlags = 0)
         {
+            uint radix = _engine.CurrentRadix();
             Task eval = Task.Run(async () =>
             {
-                await Eval(dwFlags, dwDAPFlags);
+                await Eval(radix, dwFlags, dwDAPFlags);
             });
             eval.Wait();
         }
@@ -493,51 +557,25 @@ namespace Microsoft.MIDebugEngine
             return val;
         }
 
-        /// <summary>
-        /// This allows console commands to be sent through the eval channel via a '-exec ' or '`' preface
-        /// </summary>
-        /// <param name="command">raw command</param>
-        /// <param name="strippedCommand">command stripped of the preface ('-exec ' or '`')</param>
-        /// <returns>true if it is a console command</returns>
-        private bool IsConsoleExecCmd(string command, out string strippedCommand)
-        {
-            strippedCommand = string.Empty;
-            string execCommandString = "-exec ";
-            if (command.StartsWith(execCommandString, StringComparison.Ordinal))
-            {
-                strippedCommand = command.Substring(execCommandString.Length);
-                return true;
-            }
-            else if (command[0] == '`')
-            {
-                strippedCommand = command.Substring(1).TrimStart(); // remove spaces if any
-                return true;
-            }
-            return false;
-        }
-
-        internal async Task Eval(enum_EVALFLAGS dwFlags = 0, DAPEvalFlags dwDAPFlags = 0)
+        internal async Task Eval(uint radix, enum_EVALFLAGS dwFlags = 0, DAPEvalFlags dwDAPFlags = 0)
         {
             this.VerifyNotDisposed();
 
-            await _engine.UpdateRadixAsync(_engine.CurrentRadix());    // ensure the radix value is up-to-date
+            if (radix != 0)
+            {
+                await _engine.UpdateRadixAsync(radix);    // ensure the radix value is up-to-date
+            }
 
             try
             {
-                string consoleCommand;
-                if (IsConsoleExecCmd(_strippedName, out consoleCommand))
+                if (EngineUtils.IsConsoleExecCmd(_strippedName, out string _, out string consoleCommand))
                 {
                     // special case for executing raw mi commands. 
                     string consoleResults = null;
 
                     consoleResults = await MIDebugCommandDispatcher.ExecuteCommand(consoleCommand, _debuggedProcess, ignoreFailures: true);
-                    Value = String.Empty;
+                    Value = consoleResults;
                     this.TypeName = null;
-
-                    if (!String.IsNullOrEmpty(consoleResults))
-                    {
-                        _debuggedProcess.WriteOutput(consoleResults);
-                    }
                 }
                 else
                 {
@@ -559,7 +597,25 @@ namespace Microsoft.MIDebugEngine
 
                     int threadId = Client.GetDebuggedThread().Id;
                     uint frameLevel = _ctx.Level;
-                    Results results = await _engine.DebuggedProcess.MICommandFactory.VarCreate(_strippedName, threadId, frameLevel, dwFlags, ResultClass.None);
+
+                    string expression = _strippedName;
+
+                    // If we have a deferred format expression, resolve it.
+                    if (_deferedFormatExpression != null)
+                    {
+                        string deferedExpression = await _deferedFormatExpression(threadId, frameLevel);
+
+                        if (!string.IsNullOrEmpty(deferedExpression))
+                        {
+                            expression = deferedExpression;
+                        }
+                        else
+                        {
+                            Debug.Fail(FormattableString.Invariant($"Failed to resolve deferred expression. Falling back to original: '{expression}'."));
+                        }
+                    }
+
+                    Results results = await _engine.DebuggedProcess.MICommandFactory.VarCreate(expression, threadId, frameLevel, dwFlags, ResultClass.None);
 
                     if (results.ResultClass == ResultClass.done)
                     {

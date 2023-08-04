@@ -20,6 +20,7 @@ using Microsoft.VisualStudio.Debugger.Interop;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Text;
+using MICore.Json.LaunchOptions;
 
 namespace MICore
 {
@@ -443,6 +444,18 @@ namespace MICore
             this.MIDebuggerArgs = MIDebuggerArgs;
         }
 
+        public LocalLaunchOptions(string MIDebuggerPath, string MIDebuggerServerAddress, bool UseExtendedRemote) :
+            this(MIDebuggerPath, MIDebuggerServerAddress)
+        {
+            this.UseExtendedRemote = UseExtendedRemote;
+        }
+
+        public LocalLaunchOptions(string MIDebuggerPath, string MIDebuggerServerAddress, string MIDebuggerArgs, bool UseExtendedRemote) :
+            this(MIDebuggerPath, MIDebuggerServerAddress, MIDebuggerArgs)
+        {
+            this.UseExtendedRemote = UseExtendedRemote;
+        }
+
         private void InitializeServerOptions(Json.LaunchOptions.LaunchOptions launchOptions)
         {
             if (!String.IsNullOrWhiteSpace(launchOptions.DebugServerPath))
@@ -533,7 +546,8 @@ namespace MICore
 
             LocalLaunchOptions localLaunchOptions = new LocalLaunchOptions(RequireAttribute(miDebuggerPath, nameof(miDebuggerPath)),
                 launchOptions.MiDebuggerServerAddress,
-                launchOptions.MiDebuggerArgs
+                launchOptions.MiDebuggerArgs,
+                launchOptions.UseExtendedRemote.GetValueOrDefault(false)
                 );
 
             // Load up common options
@@ -561,7 +575,8 @@ namespace MICore
             var options = new LocalLaunchOptions(
                 RequireAttribute(miDebuggerPath, "MIDebuggerPath"),
                 source.MIDebuggerServerAddress,
-                source.MIDebuggerArgs);
+                source.MIDebuggerArgs,
+                source.UseExtendedRemote);
             options.InitializeCommonOptions(source);
             options.InitializeServerOptions(source);
             options._useExternalConsole = source.ExternalConsole;
@@ -665,6 +680,11 @@ namespace MICore
         /// [Optional] Server address that MI Debugger server is listening to
         /// </summary>
         public string MIDebuggerServerAddress { get; private set; }
+
+        /// <summary>
+        /// [Optional] If true, use gdb extended-remote mode to connect to gdbserver.
+        /// </summary>
+        public bool UseExtendedRemote { get; private set; }
 
         /// <summary>
         /// [Optional] MI Debugger Server exe, if non-null then the MIEngine will start the debug server before starting the debugger
@@ -940,19 +960,10 @@ namespace MICore
             }
         }
 
-        private string _visualizerFile;
         /// <summary>
-        /// [Optional] Natvis file name - from install location
+        /// Collection of natvis files to use when evaluating
         /// </summary>
-        public string VisualizerFile
-        {
-            get { return _visualizerFile; }
-            set
-            {
-                VerifyCanModifyProperty(nameof(VisualizerFile));
-                _visualizerFile = value;
-            }
-        }
+        public List<string> VisualizerFiles { get; } = new List<string>();
 
         private bool _waitDynamicLibLoad = true;
         /// <summary>
@@ -1057,6 +1068,24 @@ namespace MICore
 
                 VerifyCanModifyProperty(nameof(SetupCommands));
                 _setupCommands = value;
+            }
+        }
+
+        private ReadOnlyCollection<LaunchCommand> _postRemoteConnectCommands;
+
+        /// <summary>
+        /// [Required] Additional commands used to setup debugging once the remote connection has been made. May be an empty collection
+        /// </summary>
+        public ReadOnlyCollection<LaunchCommand> PostRemoteConnectCommands
+        {
+            get { return _postRemoteConnectCommands; }
+            set
+            {
+                if (value == null)
+                    throw new ArgumentNullException("PostRemoteConnectCommands");
+
+                VerifyCanModifyProperty(nameof(PostRemoteConnectCommands));
+                _postRemoteConnectCommands = value;
             }
         }
 
@@ -1165,6 +1194,18 @@ namespace MICore
             }
         }
 
+        private UnknownBreakpointHandling _unknownBreakpointHandling;
+
+        public UnknownBreakpointHandling UnknownBreakpointHandling
+        {
+            get { return _unknownBreakpointHandling; }
+            set
+            {
+                VerifyCanModifyProperty(nameof(UnknownBreakpointHandling));
+                _unknownBreakpointHandling = value;
+            }
+        }
+
         public string GetOptionsString()
         {
             try
@@ -1210,7 +1251,7 @@ namespace MICore
             if (string.IsNullOrEmpty(options))
                 throw new InvalidLaunchOptionsException(MICoreResources.Error_StringIsNullOrEmpty);
 
-            logger?.WriteTextBlock("LaunchOptions", options);
+            logger?.WriteTextBlock(LogLevel.Verbose, "LaunchOptions", options);
 
             LaunchOptions launchOptions = null;
             Guid clsidLauncher = Guid.Empty;
@@ -1416,6 +1457,7 @@ namespace MICore
 
             options.ProcessId = processId;
             options.SetupCommands = new ReadOnlyCollection<LaunchCommand>(new LaunchCommand[] { });
+            options.PostRemoteConnectCommands = new ReadOnlyCollection<LaunchCommand>(new LaunchCommand[] { });
             if (attachOptions != null)
             {
                 options.Merge(attachOptions);
@@ -1449,7 +1491,7 @@ namespace MICore
                     {
                         try
                         {
-                            logger?.WriteTextBlock("SupplementalOptions", suppOptions);
+                            logger?.WriteTextBlock(LogLevel.Verbose, "SupplementalOptions", suppOptions);
                             XmlReader xmlRrd = OpenXml(suppOptions);
                             XmlSerializer serializer = GetXmlSerializer(typeof(Xml.LaunchOptions.SupplementalLaunchOptions));
                             return (Xml.LaunchOptions.SupplementalLaunchOptions)Deserialize(serializer, xmlRrd);
@@ -1528,9 +1570,9 @@ namespace MICore
             {
                 DebugChildProcesses = suppOptions.DebugChildProcesses;
             }
-            if (string.IsNullOrWhiteSpace(VisualizerFile))
+            if (!this.VisualizerFiles.Contains(suppOptions.VisualizerFile))
             {
-                VisualizerFile = suppOptions.VisualizerFile;
+                this.VisualizerFiles.Add(suppOptions.VisualizerFile);
             }
             if (suppOptions.ShowDisplayStringSpecified)
             {
@@ -1720,7 +1762,10 @@ namespace MICore
                 this.TargetArchitecture = ConvertTargetArchitectureAttribute(options.TargetArchitecture);
             }
 
-            this.VisualizerFile = options.VisualizerFile;
+            if (options.VisualizerFile != null && options.VisualizerFile.Count > 0)
+            {
+                this.VisualizerFiles.AddRange(options.VisualizerFile);
+            }
             this.ShowDisplayString = options.ShowDisplayString.GetValueOrDefault(false);
 
             this.AdditionalSOLibSearchPath = String.IsNullOrEmpty(this.AdditionalSOLibSearchPath) ?
@@ -1753,6 +1798,7 @@ namespace MICore
             }
 
             this.SetupCommands = LaunchCommand.CreateCollection(options.SetupCommands);
+            this.PostRemoteConnectCommands = LaunchCommand.CreateCollection(options.PostRemoteConnectCommands);
 
             this.RequireHardwareBreakpoints = options.HardwareBreakpointInfo?.Require ?? false;
             this.HardwareBreakpointLimit = options.HardwareBreakpointInfo?.Limit ?? 0;
@@ -1761,6 +1807,8 @@ namespace MICore
             {
                 throw new InvalidLaunchOptionsException(String.Format(CultureInfo.InvariantCulture, MICoreResources.Error_OptionNotSupported, nameof(options.HardwareBreakpointInfo.Require), nameof(MIMode.Lldb)));
             }
+
+            this.UnknownBreakpointHandling = options.UnknownBreakpointHandling ?? UnknownBreakpointHandling.Throw;
         }
 
         protected void InitializeCommonOptions(Xml.LaunchOptions.BaseLaunchOptions source)
@@ -1787,8 +1835,8 @@ namespace MICore
             if (string.IsNullOrEmpty(this.WorkingDirectory))
                 this.WorkingDirectory = source.WorkingDirectory;
 
-            if (string.IsNullOrEmpty(this.VisualizerFile))
-                this.VisualizerFile = source.VisualizerFile;
+            if (!string.IsNullOrEmpty(source.VisualizerFile))
+                this.VisualizerFiles.Add(source.VisualizerFile);
 
             this.ShowDisplayString = source.ShowDisplayString;
             this.WaitDynamicLibLoad = source.WaitDynamicLibLoad;

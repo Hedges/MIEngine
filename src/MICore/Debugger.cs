@@ -173,7 +173,7 @@ namespace MICore
         protected void SetDebuggerPid(int debuggerPid)
         {
             // Used for testing
-            Logger.WriteLine(string.Concat("DebuggerPid=", debuggerPid));
+            Logger.WriteLine(LogLevel.Verbose, string.Concat("DebuggerPid=", debuggerPid));
             _localDebuggerPid = debuggerPid;
         }
 
@@ -202,7 +202,7 @@ namespace MICore
             {
                 if (_waitingToStop && _retryCount < BREAK_RETRY_MAX)
                 {
-                    Logger.WriteLine("Debugger failed to break. Trying again.");
+                    Logger.WriteLine(LogLevel.Verbose, "Debugger failed to break. Trying again.");
                     CmdBreak(BreakRequest.Internal);
                     _retryCount++;
                 }
@@ -284,8 +284,9 @@ namespace MICore
                 results = results.Add("frame", frameResult.Find("frame"));
             }
 
-            bool fIsAsyncBreak = MICommandFactory.IsAsyncBreakSignal(results);
-            if (await DoInternalBreakActions(fIsAsyncBreak))
+            AsyncBreakSignal signal = MICommandFactory.GetAsyncBreakSignal(results);
+            bool isAsyncBreak = signal == AsyncBreakSignal.SIGTRAP || (IsUsingExecInterrupt && signal == AsyncBreakSignal.SIGINT);
+            if (await DoInternalBreakActions(isAsyncBreak))
             {
                 return;
             }
@@ -410,6 +411,8 @@ namespace MICore
                     {
                         CmdContinueAsync();
                         processContinued = true;
+                        // Reset since this -exec-interrupt was for an internal breakpoint.
+                        IsUsingExecInterrupt = false;
                     }
 
                     if (firstException != null)
@@ -592,7 +595,7 @@ namespace MICore
                 _launchOptions is LocalLaunchOptions && !IsLocalLaunchUsingServer());
         }
 
-        private bool IsRemoteGdbTarget()
+        internal bool IsRemoteGdbTarget()
         {
             return MICommandFactory.Mode == MIMode.Gdb &&
                (_launchOptions is PipeLaunchOptions || _launchOptions is UnixShellPortLaunchOptions ||
@@ -606,6 +609,11 @@ namespace MICore
                 return this._launchOptions.IsCoreDump;
             }
         }
+
+        /// <summary>
+        /// Flag to indicate that '-exec-interrupt' was used for async-break scenarios.
+        /// </summary>
+        public bool IsUsingExecInterrupt { get; protected set; } = false;
 
         public async Task<Results> CmdTerminate()
         {
@@ -750,6 +758,7 @@ namespace MICore
                 }
             }
 
+            IsUsingExecInterrupt = true;
             var res = CmdAsync("-exec-interrupt", ResultClass.done);
             return res.ContinueWith((t) =>
             {
@@ -784,6 +793,9 @@ namespace MICore
                         break;
                     case '\\':
                         outStr.Append("\\\\");
+                        break;
+                    case '\n':
+                        outStr.Append("\\n");
                         break;
                     default:
                         outStr.Append(str[i]);
@@ -936,7 +948,7 @@ namespace MICore
 
         void ITransportCallback.OnStdErrorLine(string line)
         {
-            Logger.WriteLine("STDERR: " + line);
+            Logger.WriteLine(LogLevel.Warning, "STDERR: " + line);
 
             if (_initialErrors != null)
             {
@@ -968,6 +980,13 @@ namespace MICore
                         {
                             MIDebuggerInitializeFailedException exception;
                             string version = GdbVersionFromLog();
+
+                            int majorVersion = -1;
+                            if (!string.IsNullOrWhiteSpace(version))
+                            {
+                                int.TryParse(version.Split('.').FirstOrDefault(), out majorVersion);
+                            }
+                            MICommandFactory.MajorVersion = majorVersion;
 
                             // We can't use IsMinGW or IsCygwin because we never connected to the debugger
                             bool isMinGWOrCygwin = _launchOptions is LocalLaunchOptions &&
@@ -1048,7 +1067,7 @@ namespace MICore
 
         void ITransportCallback.AppendToInitializationLog(string line)
         {
-            Logger.WriteLine(line);
+            Logger.WriteLine(LogLevel.Verbose, line);
 
             if (_initializationLog != null)
             {
@@ -1241,7 +1260,7 @@ namespace MICore
                         if (waitingOperation != null)
                         {
                             Results results = _miResults.ParseCommandOutput(noprefix);
-                            Logger.WriteLine(id.ToString(CultureInfo.InvariantCulture) + ": elapsed time " + ((int)(DateTime.Now - waitingOperation.StartTime).TotalMilliseconds).ToString(CultureInfo.InvariantCulture));
+                            Logger.WriteLine(LogLevel.Verbose, id.ToString(CultureInfo.InvariantCulture) + ": elapsed time " + ((int)(DateTime.Now - waitingOperation.StartTime).TotalMilliseconds).ToString(CultureInfo.InvariantCulture));
                             waitingOperation.OnComplete(results, this.MICommandFactory);
                             return;
                         }
@@ -1254,10 +1273,10 @@ namespace MICore
                         {
                             WaitingOperationDescriptor waitingOperation;
                             if (_waitingOperations.TryGetValue(id, out waitingOperation) &&
-                                !waitingOperation.EchoReceived &&
                                 line == waitingOperation.Command)
                             {
                                 // This is just the echo. Ignore.
+                                // Sometimes with lldb we are seeing 2 command echos 
                                 waitingOperation.EchoReceived = true;
                                 return;
                             }

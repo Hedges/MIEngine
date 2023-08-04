@@ -1,0 +1,41 @@
+parameters:
+  SourceFolder: '$(Pipeline.Workspace)\Lab.Release'
+
+steps:
+- task: CopyFiles@2
+  displayName: 'Copy Files to: $(Pipeline.Workspace)\ApiScanFiles'
+  inputs:
+    SourceFolder: ${{ parameters.SourceFolder }}
+    Contents: |
+      **\*Microsoft@(*.dll|*.pdb|*.exe)
+      **\*OpenDebugAD7@(*.dll|*.pdb|*.exe)
+      **\*WindowsDebugLauncher@(*.dll|*.pdb|*.exe)
+      **\Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier.DesignTime.dll
+      !**\*.resources.dll
+      !**\Microsoft.VisualStudio.Debugger.Interop*
+      !**\vscode\Microsoft.VisualStudio.Interop.dll
+      !**\vscode\Microsoft.VisualStudio.Shared.VSCodeDebugProtocol.dll
+    TargetFolder: '$(Pipeline.Workspace)\ApiScanFiles'
+    CleanTargetFolder: true
+    OverWrite: true
+
+# This gets excluded by !**\Microsoft.VisualStudio.Debugger.Interop* but we create Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier.DesignTime.dll.
+- task: CopyFiles@2
+  displayName: 'Copy UnixPortSupplier to: $(Pipeline.Workspace)\ApiScanFiles'
+  inputs:
+    SourceFolder: ${{ parameters.SourceFolder }}
+    Contents: |
+      **\Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier.DesignTime.dll
+    TargetFolder: '$(Pipeline.Workspace)\ApiScanFiles'
+  
+- task: securedevelopmentteam.vss-secure-development-tools.build-task-apiscan.APIScan@2
+  displayName: 'Run APIScan'
+  inputs:
+    softwareFolder: '$(Pipeline.Workspace)\ApiScanFiles'
+    softwareName: MIEngine
+    softwareVersionNum: '$(Build.BuildNumber)'
+    symbolsFolder: 'SRV*http://symweb;$(Pipeline.Workspace)\ApiScanFiles'
+    isLargeApp: false
+  continueOnError: true
+  env:
+    AzureServicesAuthConnectionString: runAs=App;AppId=$(ApiScanClientId);TenantId=$(ApiScanTenant);AppKey=$(MIEngineApiScan)

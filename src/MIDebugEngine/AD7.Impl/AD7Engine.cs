@@ -189,7 +189,7 @@ namespace Microsoft.MIDebugEngine
         {
             Debug.Assert(_ad7ProgramId == Guid.Empty);
 
-            Logger.LoadMIDebugLogger(_configStore);
+            Logger.LoadMIDebugLogger();
 
             if (celtPrograms != 1)
             {
@@ -270,9 +270,12 @@ namespace Microsoft.MIDebugEngine
                 {
                     miMode = MIMode.Gdb;
                 }
+                else if (_engineGuid == EngineConstants.LldbEngine)
+                {
+                    miMode = MIMode.Lldb;
+                }
                 else
                 {
-                    // TODO: LLDB support
                     throw new NotImplementedException();
                 }
 
@@ -495,7 +498,7 @@ namespace Microsoft.MIDebugEngine
         public int SetRegistryRoot(string registryRoot)
         {
             _configStore = new HostConfigurationStore(registryRoot);
-            Logger = Logger.EnsureInitialized(_configStore);
+            Logger = Logger.EnsureInitialized();
             return Constants.S_OK;
         }
 
@@ -536,7 +539,7 @@ namespace Microsoft.MIDebugEngine
             Debug.Assert(_ad7ProgramId == Guid.Empty);
 
             // Check if the logger was enabled late.
-            Logger.LoadMIDebugLogger(_configStore);
+            Logger.LoadMIDebugLogger();
 
             process = null;
 
@@ -1156,6 +1159,30 @@ namespace Microsoft.MIDebugEngine
                 hr = Constants.S_OK;
             }
             return hr;
+        }
+
+        int IDebugProgramDAP.AutoComplete(string command, IDebugStackFrame2 stackFrame, out string[] result)
+        {
+            var frame = stackFrame as AD7StackFrame;
+            int threadId = frame?.Thread.Id ?? -1;
+            uint frameLevel = frame?.ThreadContext.Level ?? 0;
+
+            string[] matches = null;
+            if (EngineUtils.IsConsoleExecCmd(command, out string prefix, out string consoleCommand))
+            {
+                _debuggedProcess.WorkerThread.RunOperation(async () =>
+                {
+                    matches = await _debuggedProcess.MICommandFactory.AutoComplete(consoleCommand, threadId, frameLevel);
+                });
+
+                for (int i = 0; i < matches.Length; i++)
+                {
+                    matches[i] = prefix + matches[i];
+                }
+            }
+
+            result = matches;
+            return matches != null ? Constants.S_OK : Constants.E_FAIL;
         }
         #endregion
 

@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Internal.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -17,9 +18,26 @@ using Microsoft.VisualStudio.Threading;
 using Microsoft.VisualStudio.Workspace;
 using Microsoft.VisualStudio.Workspace.Indexing;
 using Microsoft.VisualStudio.Workspace.VSIntegration.Contracts;
+using Microsoft.Win32;
 
 namespace Microsoft.DebugEngineHost
 {
+    internal class RegisterMonitorWrapper : IDisposable
+    {
+        public RegistryMonitor CurrentMonitor { get; set; }
+
+        internal RegisterMonitorWrapper(RegistryMonitor currentMonitor)
+        {
+            CurrentMonitor = currentMonitor;
+        }
+
+        public void Dispose()
+        {
+            CurrentMonitor.Dispose();
+            CurrentMonitor = null;
+        }
+    }
+
     /// <summary>
     /// Provides interactions with the host's source workspace to locate and load any natvis files
     /// in the project.
@@ -29,22 +47,130 @@ namespace Microsoft.DebugEngineHost
         public delegate void NatvisLoader(string path);
 
         /// <summary>
-        /// Searches the solution for natvis files, invoking the loader on any which are found.
+        /// Searches the solution and VSIXs for natvis files, invoking the loader on any which are found.
         /// </summary>
         /// <param name="loader">Natvis loader method to invoke</param>
-        public static void FindNatvisInSolution(NatvisLoader loader)
+        public static void FindNatvis(NatvisLoader loader)
         {
             List<string> paths = new List<string>();
             try
             {
-                ThreadHelper.JoinableTaskFactory.Run(async () =>
-                    await Internal.FindNatvisInSolutionImplAsync(paths)
-                );
+                ThreadHelper.JoinableTaskFactory.Run(async () => {
+                    await Internal.FindNatvisInSolutionImplAsync(paths);
+                    Internal.FindNatvisInVSIXImpl(paths);
+                });
             }
             catch (Exception)
             {
             }
             paths.ForEach((s) => loader(s));
+        }
+
+        public static IDisposable WatchNatvisOptionSetting(HostConfigurationStore configStore, ILogChannel natvisLogger)
+        {
+            RegisterMonitorWrapper rmw = null;
+
+            HostConfigurationSection natvisDiagnosticSection = configStore.GetNatvisDiagnosticSection();
+            if (natvisDiagnosticSection != null)
+            {
+                // DiagnosticSection exists, set current log level and watch for changes.
+                SetNatvisLogLevel(natvisDiagnosticSection);
+
+                rmw = new RegisterMonitorWrapper(CreateAndStartNatvisDiagnosticMonitor(natvisDiagnosticSection, natvisLogger));
+            }
+            else
+            {
+                // NatvisDiagnostic section has not been created, we need to watch for the creation.
+                HostConfigurationSection debuggerSection = configStore.GetCurrentUserDebuggerSection();
+
+                if (debuggerSection != null)
+                {
+                    // We only care about the debugger subkey's keys since we are waiting for the NatvisDiagnostics
+                    // section to be created.
+                    RegistryMonitor rm = new RegistryMonitor(debuggerSection, false, natvisLogger);
+
+                    rmw = new RegisterMonitorWrapper(rm);
+
+                    rm.RegChanged += (sender, e) =>
+                    {
+                        HostConfigurationSection checkForSection = configStore.GetNatvisDiagnosticSection();
+
+                        if (checkForSection != null)
+                        {
+                            // NatvisDiagnostic section found. Update the logger
+                            SetNatvisLogLevel(checkForSection);
+
+                            // Remove debugger section tracking 
+                            IDisposable disposable = rmw.CurrentMonitor;
+
+                            // Watch NatvisDiagnostic section
+                            rmw = new RegisterMonitorWrapper(CreateAndStartNatvisDiagnosticMonitor(checkForSection, natvisLogger));
+
+                            disposable.Dispose();
+                        }
+                    };
+
+                    rm.Start();
+                }
+            }
+
+
+            return rmw;
+        }
+
+        private static RegistryMonitor CreateAndStartNatvisDiagnosticMonitor(HostConfigurationSection natvisDiagnosticSection, ILogChannel natvisLogger)
+        {
+            RegistryMonitor rm = new RegistryMonitor(natvisDiagnosticSection, true, natvisLogger);
+
+            rm.RegChanged += (sender, e) =>
+            {
+                SetNatvisLogLevel(natvisDiagnosticSection);
+            };
+
+            rm.Start();
+
+            return rm;
+        }
+
+        private static void SetNatvisLogLevel(HostConfigurationSection natvisDiagnosticSection)
+        {
+            string level = natvisDiagnosticSection.GetValue("Level") as string;
+            if (level != null)
+            {
+                level = level.ToLower(CultureInfo.InvariantCulture);
+            }
+            LogLevel logLevel;
+            switch (level)
+            {
+                case "off":
+                    logLevel = LogLevel.None;
+                    break;
+                case "error":
+                    logLevel = LogLevel.Error;
+                    break;
+                case "warning":
+                    logLevel = LogLevel.Warning;
+                    break;
+                case "verbose":
+                    logLevel = LogLevel.Verbose;
+                    break;
+                default: // Unknown, default to Warning
+                    logLevel = LogLevel.Warning;
+                    break;
+            }
+
+            if (logLevel == LogLevel.None)
+            {
+                HostLogger.DisableNatvisDiagnostics();
+            }
+            else
+            {
+                HostLogger.EnableNatvisDiagnostics((message) => {
+                    string formattedMessage = string.Format(CultureInfo.InvariantCulture, "Natvis: {0}", message);
+                    HostOutputWindow.WriteLaunchError(formattedMessage);
+                }, logLevel);
+                HostLogger.GetNatvisLogChannel().SetLogLevel(logLevel);
+            }
         }
 
         public static string FindSolutionRoot()
@@ -94,11 +220,14 @@ namespace Microsoft.DebugEngineHost
             private static IVsFolderWorkspaceService GetWorkspaceService()
             {
                 IComponentModel componentModel = ServiceProvider.GlobalProvider.GetService(typeof(SComponentModel).GUID) as IComponentModel;
-                var workspaceServices = componentModel.DefaultExportProvider.GetExports<IVsFolderWorkspaceService>();
-
-                if (workspaceServices != null && workspaceServices.Any())
+                if (componentModel != null)
                 {
-                    return workspaceServices.First().Value;
+                    var workspaceServices = componentModel.DefaultExportProvider.GetExports<IVsFolderWorkspaceService>();
+
+                    if (workspaceServices != null && workspaceServices.Any())
+                    {
+                        return workspaceServices.First().Value;
+                    }
                 }
                 return null;
             }
@@ -190,6 +319,17 @@ namespace Microsoft.DebugEngineHost
                 }
             }
 
+            public static void FindNatvisInVSIXImpl(List<string> paths)
+            {
+                var extManager = (IVsExtensionManagerPrivate)Package.GetGlobalService(typeof(SVsExtensionManager));
+                if (extManager == null)
+                {
+                    return; // failed to find the extension manager
+                }
+
+                BuildEnvironmentPath("NativeCrossPlatformVisualizer", extManager, paths);
+            }
+
             public static string FindSolutionRootImpl()
             {
                 string root = null;
@@ -202,6 +342,23 @@ namespace Microsoft.DebugEngineHost
                 }
                 solution.GetSolutionInfo(out root, out slnFile, out slnUserFile);
                 return root;
+            }
+
+            private static void BuildEnvironmentPath(string name, IVsExtensionManagerPrivate pem, List<string> paths)
+            {
+                pem.GetEnabledExtensionContentLocations(name, 0, null, null, out var contentLocations);
+                if (contentLocations > 0)
+                {
+                    var rgStrings = new string[contentLocations];
+                    var rgbstrContentLocations = new string[contentLocations];
+                    var rgbstrUniqueStrings = new string[contentLocations];
+
+                    var hr = pem.GetEnabledExtensionContentLocations(name, contentLocations, rgbstrContentLocations, rgbstrUniqueStrings, out var actualContentLocations);
+                    if (hr == VSConstants.S_OK && actualContentLocations > 0)
+                    {
+                        paths.AddRange(rgbstrContentLocations);
+                    }
+                }
             }
 
             private static void LoadNatvisFromProject(IVsHierarchy hier, List<string> paths, bool solutionLevel)

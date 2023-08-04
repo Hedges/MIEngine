@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DebuggerTesting.OpenDebug.Commands;
+using DebuggerTesting.OpenDebug.CrossPlatCpp;
 using DebuggerTesting.Utilities;
 using Newtonsoft.Json;
 
@@ -32,6 +33,13 @@ namespace DebuggerTesting.OpenDebug.CrossPlatCpp
 
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
         public string MIMode;
+
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public object VisualizerFile;
+
+
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool ShowDisplayString;
     }
 
     #endregion
@@ -44,8 +52,13 @@ namespace DebuggerTesting.OpenDebug.CrossPlatCpp
         /// <param name="program">The full path to the program to launch</param>
         /// <param name="architecture">The architecture of the program</param>
         /// <param name="args">[OPTIONAL] Args to pass to the program</param>
-        public LaunchCommand(IDebuggerSettings settings, string program, bool isAttach = false, params string[] args)
+        public LaunchCommand(IDebuggerSettings settings, string program, object visualizerFile = null, bool isAttach = false, params string[] args)
         {
+            if (!(visualizerFile == null || visualizerFile is string || visualizerFile is List<string>))
+            {
+                throw new ArgumentOutOfRangeException(nameof(visualizerFile));
+            }
+
             this.Timeout = TimeSpan.FromSeconds(15);
 
             this.Args.name = CreateName(settings);
@@ -68,6 +81,8 @@ namespace DebuggerTesting.OpenDebug.CrossPlatCpp
                 this.Args.miDebuggerPath = settings.DebuggerPath;
                 this.Args.targetArchitecture = settings.DebuggeeArchitecture.ToArchitectureString();
                 this.Args.MIMode = settings.MIMode;
+                this.Args.VisualizerFile = visualizerFile;
+                this.Args.ShowDisplayString = visualizerFile != null;
             }
         }
 
