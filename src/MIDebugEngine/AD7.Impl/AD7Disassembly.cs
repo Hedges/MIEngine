@@ -232,6 +232,18 @@ namespace Microsoft.MIDebugEngine
                     }
                 }
 
+                if (iOp != 0)
+                {
+                    if ((prgDisassembly[iOp].bstrDocumentUrl == prgDisassembly[iOp - 1].bstrDocumentUrl) &&
+                       (prgDisassembly[iOp].posBeg.dwLine == prgDisassembly[iOp - 1].posBeg.dwLine) &&
+                       (prgDisassembly[iOp].posEnd.dwLine == prgDisassembly[iOp - 1].posEnd.dwLine))
+                    {
+                        prgDisassembly[iOp].dwFields &= ~(enum_DISASSEMBLY_STREAM_FIELDS.DSF_DOCUMENTURL);
+                        prgDisassembly[iOp].dwFields &= ~(enum_DISASSEMBLY_STREAM_FIELDS.DSF_POSITION);
+                        prgDisassembly[iOp].dwFlags &= ~(enum_DISASSEMBLY_FLAGS.DF_HASSOURCE);
+                    }
+                }
+
                 iOp++;
             };
 

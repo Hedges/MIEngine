@@ -316,7 +316,14 @@ namespace Microsoft.MIDebugEngine
 
             if(s_mixed)
             {
-                cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
+                if (process.MICommandFactory.Mode == MIMode.Gdb)
+                {
+                    cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
+                }
+                else
+                {
+                    cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 1";
+                }
                 results = await process.CmdAsync(cmd, ResultClass.None);
                 if(results.ResultClass == ResultClass.done)
                 {
