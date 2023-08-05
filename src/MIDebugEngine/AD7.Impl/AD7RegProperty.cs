@@ -144,59 +144,119 @@ namespace Microsoft.MIDebugEngine
 
         private string FormatNeonRegister(string bstrValue)
         {
-            string r = "";
+            string r = bstrValue;
             if (_engine.DebuggedProcess.MICommandFactory.Mode == MIMode.Gdb)
             {
                 int beg = bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = 0x".Length;
                 int end = bstrValue.LastIndexOf("}", StringComparison.Ordinal);
-                if (end > beg)
+                BigInteger big = BigInteger.Parse(bstrValue.Substring(beg, end - beg), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+                r = "";
+                for (int c = 0; c < 4; c++)
                 {
-                    BigInteger big = BigInteger.Parse(bstrValue.Substring(beg, end - beg), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
-                    for (int c = 0; c < 4; c++)
+                    UInt32 h = (UInt32)(big & 0xffffffff);
+                    float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                    r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                    if (c != 3)
                     {
-                        UInt32 h = (UInt32)(big & 0xffffffff);
-                        float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
-                        r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
-                        if (c != 3)
-                        {
-                            r += ", ";
-                        }
-                        big >>= 32;
+                        r += ", ";
                     }
+                    big >>= 32;
                 }
             }
             else
             {
-                r = bstrValue;
             }
             return r;
         }
 
         private string FormatVectorRegister(string bstrValue)
         {
-            string r = "";
+            string r = bstrValue;
             if (_engine.DebuggedProcess.MICommandFactory.Mode == MIMode.Gdb)
             {
-                r = bstrValue;
-            }
-            else
-            {
-                int beg = 1;
-                int end = bstrValue.Length - 1;
-                if (end > beg)
+                int beg = bstrValue.IndexOf("v4_float = {", StringComparison.Ordinal);
+                if (beg != -1)
                 {
+                    beg += "v4_float = {".Length;
+                    int end = bstrValue.IndexOf('}', beg);
                     string[] separators = { "0x", ", " };
                     string[] hexes = bstrValue.Substring(beg, end - beg).Split(separators, System.StringSplitOptions.RemoveEmptyEntries);
-                    byte[] bytes = Array.ConvertAll<string, byte>(hexes, s => Byte.Parse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));
+                    UInt32[] bytes = hexes.Select(v => Convert.ToUInt32(v, 16)).ToArray();
+                    r = "";
                     for (int c = 0; c < 4; c++)
                     {
-                        UInt32 h = BitConverter.ToUInt32(bytes, 4 * c);
-                        float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                        float v = BitConverter.ToSingle(BitConverter.GetBytes(bytes[c]), 0);
                         r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
                         if (c != 3)
                         {
                             r += ", ";
                         }
+                    }
+                }
+            }
+            else
+            {
+                int beg = 1;
+                int end = bstrValue.Length - 1;
+                string[] separators = { "0x", ", " };
+                string[] hexes = bstrValue.Substring(beg, end - beg).Split(separators, System.StringSplitOptions.RemoveEmptyEntries);
+                byte[] bytes = Array.ConvertAll<string, byte>(hexes, s => Byte.Parse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));
+                r = "";
+                for (int c = 0; c < 4; c++)
+                {
+                    UInt32 h = BitConverter.ToUInt32(bytes, 4 * c);
+                    float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                    r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                    if (c != 3)
+                    {
+                        r += ", ";
+                    }
+                }
+            }
+            return r;
+        }
+
+        private string FormatAvxRegister(string bstrValue)
+        {
+            string r = bstrValue;
+            if (_engine.DebuggedProcess.MICommandFactory.Mode == MIMode.Gdb)
+            {
+                int beg = bstrValue.IndexOf("v4_double = {", StringComparison.Ordinal);
+                if (beg != -1)
+                {
+                    beg += +"v4_double = {".Length;
+                    int end = bstrValue.IndexOf('}', beg);
+                    string[] separators = { "0x", ", " };
+                    string[] hexes = bstrValue.Substring(beg, end - beg).Split(separators, System.StringSplitOptions.RemoveEmptyEntries);
+                    UInt64[] bytes = hexes.Select(v => Convert.ToUInt64(v, 16)).ToArray();
+                    r = "";
+                    for (int c = 0; c < 4; c++)
+                    {
+                        double v = BitConverter.ToDouble(BitConverter.GetBytes(bytes[c]), 0);
+                        r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                        if (c != 3)
+                        {
+                            r += ", ";
+                        }
+                    }
+                }
+            }
+            else
+            {
+                int beg = 1;
+                int end = bstrValue.Length - 1;
+                string[] separators = { "0x", ", " };
+                string[] hexes = bstrValue.Substring(beg, end - beg).Split(separators, System.StringSplitOptions.RemoveEmptyEntries);
+                byte[] bytes = Array.ConvertAll<string, byte>(hexes, s => Byte.Parse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));
+                r = "";
+                for (int c = 0; c < 4; c++)
+                {
+                    UInt64 h = BitConverter.ToUInt64(bytes, 8 * c);
+                    double v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                    r += v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                    if (c != 3)
+                    {
+                        r += ", ";
                     }
                 }
             }
@@ -249,6 +309,15 @@ namespace Microsoft.MIDebugEngine
                         else if ((reg.Group.Name == "Vector") || (reg.Group.Name == "SSE"))
                         {
                             properties[i].bstrValue = FormatVectorRegister(properties[i].bstrValue);
+                        }
+                        else if ((reg.Group.Name == "AVX"))
+                        {
+                            properties[i].bstrValue = FormatAvxRegister(properties[i].bstrValue);
+                            //if(properties[i].bstrName.EndsWith("h", StringComparison.Ordinal))
+                            //{
+                            //    properties[i].dwFields = enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_NAME;
+                            //    continue;
+                            //}
                         }
                         properties[i].dwFields |= enum_DEBUGPROP_INFO_FLAGS.DEBUGPROP_INFO_VALUE;
                     }
