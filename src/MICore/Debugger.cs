@@ -1273,9 +1273,27 @@ namespace MICore
                     case '@':
                         if ((this.MICommandFactory.Mode == MIMode.Lldb) && (_launchOptions is PipeLaunchOptions))
                         {
-                            noprefix = originalLine.Substring(2, originalLine.Length - 7) + '\n';
+                            string s = noprefix;
+                            s = s.Replace("\"", "");
+                            s = s.Replace("\\r", "\r");
+                            s = s.Replace("\\n", "\n");
+                            s = s.Replace("\\t", "  ");
+                            if (_consoleCommandOutput == null)
+                            {
+                                if (OutputStringEvent != null)
+                                {
+                                    OutputStringEvent(this, s);
+                                }
+                            }
+                            else
+                            {
+                                _consoleCommandOutput.Append(s);
+                            }
                         }
-                        OnDebuggeeOutput(noprefix);         // Console stream
+                        else
+                        {
+                            OnDebuggeeOutput(noprefix);     // Console stream
+                        }
                         break;
                     case '^':
                         OnResult(noprefix, token);
