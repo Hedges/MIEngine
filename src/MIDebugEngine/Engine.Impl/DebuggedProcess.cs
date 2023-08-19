@@ -146,15 +146,15 @@ namespace Microsoft.MIDebugEngine
                 }
             };
 
-            LibraryUnloadEvent += delegate (object o, EventArgs args)
-            {
-                ResultEventArgs results = args as MICore.Debugger.ResultEventArgs;
-                string id = results.Results.TryFindString("host-name");
-                if (!string.IsNullOrEmpty(id))
-                {
-                    RemoveModule(id);
-                }
-            };
+            //LibraryUnloadEvent += delegate (object o, EventArgs args)
+            //{
+            //    ResultEventArgs results = args as MICore.Debugger.ResultEventArgs;
+            //    string id = results.Results.TryFindString("host-name");
+            //    if (!string.IsNullOrEmpty(id))
+            //    {
+            //        RemoveModule(id);
+            //    }
+            //};
 
             if (_launchOptions is LocalLaunchOptions)
             {
