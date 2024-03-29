@@ -288,19 +288,19 @@ namespace Microsoft.MIDebugEngine
                         }
                         else if (reg.Group.Name == "IEEE Single")
                         {
-                            int beg = 0, end = properties[i].bstrValue.Length;
-                            if (_engine.DebuggedProcess.Is64BitArch)
-                            {
-                                beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
-                                end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
-                            }
-                            if (end > beg)
-                            {
-                                string s = properties[i].bstrValue.Substring(beg, end - beg);
-                                UInt32 h = Convert.ToUInt32(s, 16);
-                                float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
-                                properties[i].bstrValue = v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
-                            }
+                            //int beg = 0, end = properties[i].bstrValue.Length;
+                            //if (_engine.DebuggedProcess.Is64BitArch)
+                            //{
+                            //    beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
+                            //    end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
+                            //}
+                            //if (end > beg)
+                            //{
+                            //    string s = properties[i].bstrValue.Substring(beg, end - beg);
+                            //    UInt32 h = Convert.ToUInt32(s, 16);
+                            //    float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                            //    properties[i].bstrValue = v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                            //}
                         }
                         else if (reg.Group.Name == "NEON")
                         {
