@@ -1158,41 +1158,25 @@ namespace Microsoft.MIDebugEngine
             if (String.IsNullOrWhiteSpace(reason) && !this.EntrypointHit)
             {
                 breakRequest = BreakRequest.None;   // don't let stopping interfere with launch processing
-                bool shouldContinue = true;
 
-                if (_launchOptions.StopAtConnect)
-                {
-                    this.EntrypointHit = true;
-                    await this.ClearEntrypointBreakpoint();
-
-                    // Send a breakpoint event to force the client to stop (entry point may not stop depending on how the user started debugging)
-                    _callback.OnBreakpoint(thread, new ReadOnlyCollection<object>(new AD7BoundBreakpoint[] { }));
-                    shouldContinue = false;
-                }
                 // MinGW sends a stopped event on attach. gdb<->gdbserver also sends a stopped event when first attached.
                 // If this is a gdb<->gdbserver connection, ignore this as the entryPoint
-                else if (IsLocalLaunchUsingServer())
+                if (IsLocalLaunchUsingServer())
                 {
                     // If the stopped event occurs on gdbserver, ignore it unless it contains a filename.
                     TupleValue frame = results.Results.TryFind<TupleValue>("frame");
                     if (frame.Contains("file"))
                     {
-                        this.EntrypointHit = true;
-                        await this.ClearEntrypointBreakpoint();
-                        _callback.OnEntryPoint(thread);
-                        shouldContinue = false;
+                        //this.EntrypointHit = true;
                     }
                 }
                 else
                 {
-                    this.EntrypointHit = true;
-                    await this.ClearEntrypointBreakpoint();
+                    //this.EntrypointHit = true;
                 }
 
-                if (shouldContinue)
-                {
-                    CmdContinueAsync();
-                }
+                CmdContinueAsync();
+
                 FireDeviceAppLauncherResume();
             }
             else if (reason == "entry-point-hit")
@@ -1440,14 +1424,6 @@ namespace Microsoft.MIDebugEngine
                 await ConsoleCmdAsync("process handle --pass true --stop false --notify false SIGHUP", allowWhileRunning: false, ignoreFailures: true);
             }
 
-            await this.ClearEntrypointBreakpoint();
-        }
-
-        /// <summary>
-        /// Attempts to remove the breakpoint automatically set at the entrypoint of the application.
-        /// </summary>
-        private async Task ClearEntrypointBreakpoint()
-        {
             if (this._deleteEntryPointBreakpoint && !String.IsNullOrWhiteSpace(this._entryPointBreakpoint))
             {
                 // Try and delete the entrypoint breakpoint. We only try this once but in some cases this won't succeed
