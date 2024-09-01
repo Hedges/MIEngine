@@ -686,7 +686,7 @@ namespace MICore
                 {
                     return MICore.AsyncBreakSignal.SIGTRAP;
                 }
-                else if (signalName == "SIGINT")
+                else if ((signalName == "SIGINT") || (results.TryFindString("signal-name") == "SIGTRAP"))
                 {
                     return MICore.AsyncBreakSignal.SIGINT;
                 }
