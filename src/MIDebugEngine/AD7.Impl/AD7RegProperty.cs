@@ -141,6 +141,28 @@ namespace Microsoft.MIDebugEngine
             return info;
         }
 
+        private string FormatIeeeSingleRegister(string bstrValue)
+        {
+            string r = bstrValue;
+            if (_engine.DebuggedProcess.MICommandFactory.Mode == MIMode.Gdb)
+            {
+                int beg = 0, end = bstrValue.Length;
+                if (_engine.DebuggedProcess.Is64BitArch)
+                {
+                    beg = bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
+                    end = bstrValue.LastIndexOf("}", StringComparison.Ordinal);
+                }
+                if (end > beg)
+                {
+                    string s = bstrValue.Substring(beg, end - beg);
+                    UInt32 h = Convert.ToUInt32(s, 16);
+                    float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
+                    r = v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
+                }
+            }
+            return r;
+        }
+
         private string FormatNeonRegister(string bstrValue)
         {
             string r = bstrValue;
@@ -161,9 +183,6 @@ namespace Microsoft.MIDebugEngine
                     }
                     big >>= 32;
                 }
-            }
-            else
-            {
             }
             return r;
         }
@@ -287,19 +306,7 @@ namespace Microsoft.MIDebugEngine
                         }
                         else if (reg.Group.Name == "IEEE Single")
                         {
-                            int beg = 0, end = properties[i].bstrValue.Length;
-                            if(_engine.DebuggedProcess.Is64BitArch)
-                            {
-                                beg = properties[i].bstrValue.IndexOf("s = 0x", StringComparison.Ordinal) + "s = ".Length;
-                                end = properties[i].bstrValue.LastIndexOf("}", StringComparison.Ordinal);
-                            }
-                            if (end > beg)
-                            {
-                                string s = properties[i].bstrValue.Substring(beg, end - beg);
-                                UInt32 h = Convert.ToUInt32(s, 16);
-                                float v = BitConverter.ToSingle(BitConverter.GetBytes(h), 0);
-                                properties[i].bstrValue = v.ToString("e10", CultureInfo.InvariantCulture).PadLeft(18, ' ');
-                            }
+                            properties[i].bstrValue = FormatIeeeSingleRegister(properties[i].bstrValue);
                         }
                         else if (reg.Group.Name == "NEON")
                         {
