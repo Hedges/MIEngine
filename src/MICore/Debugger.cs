@@ -1274,7 +1274,7 @@ namespace MICore
                         {
                             WaitingOperationDescriptor waitingOperation;
                             if (_waitingOperations.TryGetValue(id, out waitingOperation) &&
-                                line == waitingOperation.Command)
+                                line == waitingOperation.Command.Trim())
                             {
                                 // This is just the echo. Ignore.
                                 // Sometimes with lldb we are seeing 2 command echos 
