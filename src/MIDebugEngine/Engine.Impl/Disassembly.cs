@@ -93,7 +93,7 @@ namespace Microsoft.MIDebugEngine
                 return false;
             int i = FindIndex(startAddr);
             int j = FindIndex(endAddr);
-            instructions = new ArraySegment<DisasmInstruction>(_instructions, i, j-i);
+            instructions = new ArraySegment<DisasmInstruction>(_instructions, i, j - i);
             return true;
         }
 
@@ -181,7 +181,7 @@ namespace Microsoft.MIDebugEngine
             }
             ulong endAddress;
             ulong startAddress;
-            var range = await _process.FindValidMemoryRange(address, (uint)(_process.MaxInstructionSize * (nInstructions+1)), (int)(_process.MaxInstructionSize * -nInstructions));
+            var range = await _process.FindValidMemoryRange(address, (uint)(_process.MaxInstructionSize * (nInstructions + 1)), (int)(_process.MaxInstructionSize * -nInstructions));
             startAddress = range.Item1;
             endAddress = range.Item2;
             if (endAddress - startAddress == 0 || address < startAddress) // bad address range, no instructions
@@ -283,7 +283,7 @@ namespace Microsoft.MIDebugEngine
             }
             var originalInstructions = instructions;
             int count = 0;
-            while (instructions != null && (instructions.Length == 0 || Array.Find(instructions, (i)=>i.Addr == targetAddress) == null) && count < _process.MaxInstructionSize)
+            while (instructions != null && (instructions.Length == 0 || Array.Find(instructions, (i) => i.Addr == targetAddress) == null) && count < _process.MaxInstructionSize)
             {
                 count++;
                 startAddress--;         // back up one byte
@@ -372,7 +372,7 @@ namespace Microsoft.MIDebugEngine
         }
 
         // this is inefficient so we try and grab everything in one gulp
-        internal static async Task<DisasmInstruction[]> Disassemble(DebuggedProcess process, ulong startAddr, ulong endAddr)
+        internal static async Task<DisasmInstruction[]> DisassembleOld(DebuggedProcess process, ulong startAddr, ulong endAddr)
         {
             // Due to GDB not returning source information when requesting outside of the range of user code.
             // We first get disassembly with opcodes, then map each Symbol to an address range and attempt to retrieve source information per Symbol.
@@ -385,7 +385,7 @@ namespace Microsoft.MIDebugEngine
                 return null;
             }
 
-            DisasmInstruction[] instructions =  DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
+            DisasmInstruction[] instructions = DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
 
             if (instructions != null && instructions.Length != 0)
             {
@@ -397,7 +397,7 @@ namespace Microsoft.MIDebugEngine
                     if (currentRange.Symbol == instructions[i].Symbol)
                     {
                         currentRange.UpdateEndAddress(instructions[i]);
-        }
+                    }
                     else
                     {
                         ranges.Add(currentRange);
@@ -447,6 +447,48 @@ namespace Microsoft.MIDebugEngine
         }
 
         // this is inefficient so we try and grab everything in one gulp
+        internal static async Task<DisasmInstruction[]> Disassemble(DebuggedProcess process, ulong startAddr, ulong endAddr)
+        {
+            string cmd;
+            Results results;
+
+            if (process.MICommandFactory.Mode == MIMode.Gdb)
+            {
+                cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 5";
+            }
+            else
+            {
+                cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 1";
+            }
+            results = await process.CmdAsync(cmd, ResultClass.None);
+            if (results.ResultClass == ResultClass.done)
+            {
+                try
+                {
+                    IEnumerable<DisasmInstruction> disasm = DecodeSourceAnnotatedDisassemblyInstructions(process, results.Find<ResultListValue>("asm_insns").FindAll<TupleValue>("src_and_asm_line"));
+                    return disasm.ToArray();
+                }
+                catch (Exception e)
+                {
+                }
+                try
+                {
+                    return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
+                }
+                catch (Exception e)
+                {
+                }
+            }
+            cmd = "-data-disassemble -s " + EngineUtils.AsAddr(startAddr, process.Is64BitArch) + " -e " + EngineUtils.AsAddr(endAddr, process.Is64BitArch) + " -- 2";
+            results = await process.CmdAsync(cmd, ResultClass.None);
+            if (results.ResultClass == ResultClass.done)
+            {
+                return DecodeDisassemblyInstructions(results.Find<ValueListValue>("asm_insns").AsArray<TupleValue>());
+            }
+            return null;
+        }
+
+        // this is inefficient so we try and grab everything in one gulp
         internal async Task<IEnumerable<DisasmInstruction>> Disassemble(DebuggedProcess process, string file, uint line, uint dwInstructions)
         {
             if (file.IndexOf(' ') >= 0) // only needs escaping if filename contains a space
@@ -472,7 +514,7 @@ namespace Microsoft.MIDebugEngine
                 inst.Addr = items[i].FindAddr("address");
                 inst.AddressString = items[i].FindString("address");
                 inst.Symbol = items[i].TryFindString("func-name");
-                if(inst.Symbol.Equals("??", StringComparison.Ordinal))
+                if (inst.Symbol.Equals("??", StringComparison.Ordinal))
                 {
                     inst.Symbol = "";
                 }
@@ -486,36 +528,40 @@ namespace Microsoft.MIDebugEngine
             }
             return instructions;
         }
+
         private static IEnumerable<DisasmInstruction> DecodeSourceAnnotatedDisassemblyInstructions(DebuggedProcess process, TupleValue[] items)
         {
             foreach (var item in items)
             {
-                uint line = item.FindUint("line");
+                uint line = item.TryFindUint("line") ?? 1;
                 string file = process.GetMappedFileFromTuple(item);
                 ValueListValue asm_items = item.Find<ValueListValue>("line_asm_insn");
                 uint lineOffset = 0;
-                foreach (var asm_item in asm_items.Content)
+                if (asm_items.Length != 0)
                 {
-                    DisasmInstruction disassemblyData = new DisasmInstruction();
-                    disassemblyData.Addr = asm_item.FindAddr("address");
-                    disassemblyData.AddressString = asm_item.FindString("address");
-                    disassemblyData.Symbol = asm_item.TryFindString("func-name");
-                        if(disassemblyData.Symbol.Equals("??", StringComparison.Ordinal))
+                    foreach (var asm_item in asm_items.Content)
+                    {
+                        DisasmInstruction disassemblyData = new DisasmInstruction();
+                        disassemblyData.Addr = asm_item.FindAddr("address");
+                        disassemblyData.AddressString = asm_item.FindString("address");
+                        disassemblyData.Symbol = asm_item.TryFindString("func-name");
+                        if (disassemblyData.Symbol.Equals("??", StringComparison.Ordinal))
                         {
                             disassemblyData.Symbol = "";
                         }
                         ulong offset = asm_item.TryFindAddr("offset") ?? 0;
                         disassemblyData.Offset = (offset < 0x7fffffff) ? (uint)offset : 0;
-                    disassemblyData.Opcode = asm_item.FindString("inst");
-                    disassemblyData.CodeBytes = asm_item.TryFindString("opcodes");
-                    disassemblyData.Line = line;
-                    disassemblyData.File = file;
-                    if (lineOffset == 0)
-                    {
-                        lineOffset = disassemblyData.Offset;    // offset to start of current line
+                        disassemblyData.Opcode = asm_item.FindString("inst");
+                        disassemblyData.CodeBytes = asm_item.TryFindString("opcodes");
+                        disassemblyData.Line = line;
+                        disassemblyData.File = file;
+                        if (lineOffset == 0)
+                        {
+                            lineOffset = disassemblyData.Offset;    // offset to start of current line
+                        }
+                        disassemblyData.OffsetInLine = disassemblyData.Offset - lineOffset;
+                        yield return disassemblyData;
                     }
-                    disassemblyData.OffsetInLine = disassemblyData.Offset - lineOffset;
-                    yield return disassemblyData;
                 }
             }
         }
