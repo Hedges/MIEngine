@@ -366,10 +366,10 @@ namespace Microsoft.MIDebugEngine
         // this is inefficient so we try and grab everything in one gulp
         internal async Task<IEnumerable<DisasmInstruction>> Disassemble(DebuggedProcess process, string file, uint line, uint dwInstructions)
         {
-            //if(file.IndexOf(' ') >= 0) // only needs escaping if filename contains a space
-            //{
-            //    file = process.EscapeSymbolPath(file);
-            //}
+            if (file.IndexOf(' ') >= 0) // only needs escaping if filename contains a space
+            {
+                file = process.EnsureProperPathSeparators(file);
+            }
             string cmd = "-data-disassemble -f " + file + " -l " + line.ToString(CultureInfo.InvariantCulture) + " -n " + dwInstructions.ToString(CultureInfo.InvariantCulture) + " -- 1";
             Results results = await process.CmdAsync(cmd, ResultClass.None);
             if(results.ResultClass != ResultClass.done)
