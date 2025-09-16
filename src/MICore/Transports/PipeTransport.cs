@@ -178,6 +178,15 @@ namespace MICore
 
                 try
                 {
+                    Echo("quit");
+                }
+                catch (Exception)
+                {
+                    // Ignore errors if quit couldn't be written
+                }
+
+                try
+                {
                     _writer?.Close();
                 }
                 catch (IOException)
