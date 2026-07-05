@@ -682,6 +682,7 @@ namespace MICore
             }
         }
 
+        private string _resultString;
         private Logger Logger { get; set; }
 
         private bool parsePath = false;
@@ -697,8 +698,8 @@ namespace MICore
         /// <param name="output"></param>
         public Results ParseCommandOutput(string output)
         {
-            string resultString = output.Trim();
-            int comma = resultString.IndexOf(',');
+            _resultString = output.Trim();
+            int comma = _resultString.IndexOf(',');
             Results results;
             ResultClass resultClass = ResultClass.None;
             if (comma < 0)
@@ -709,8 +710,8 @@ namespace MICore
             else
             {
                 resultClass = ParseResultClass(output.Substring(0, comma));
-                Span wholeString = new Span(resultString);
-                results = ParseResultList(resultString, wholeString.AdvanceTo(comma + 1), resultClass);
+                Span wholeString = new Span(_resultString);
+                results = ParseResultList(_resultString, wholeString.AdvanceTo(comma + 1), resultClass);
             }
             return results;
         }
@@ -850,7 +851,7 @@ namespace MICore
             {
                 parsePath = true;
             }
-            ResultValue? value = ParseResultValue(resultStr.Advance(equals + 1), out rest);
+            ResultValue? value = ParseResultValue(resultString, resultStr.Advance(equals + 1), out rest);
             parsePath = false;
             if (value == null)
             {
